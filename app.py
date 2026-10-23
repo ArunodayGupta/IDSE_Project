@@ -240,20 +240,16 @@ st.markdown("""
 # Cached Data Pipeline Engine
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
-def load_and_process_catalog(uploaded_bytes=None, file_name=None):
+def load_and_process_catalog():
     """
     Executes the end-to-end data pipeline:
-    1. Loads uploaded CSV or auto-generated fallback CSV.
-    2. Cleans & parses dates, durations, and categorical nulls.
+    1. Verifies dataset presence at data/netflix_titles.csv.
+    2. Loads and parses dates, durations, and categorical nulls.
     3. Engineers licensing lag, audience tiers, proxy categories, and NLP metadata soup.
     """
-    if uploaded_bytes is not None:
-        raw_df = pd.read_csv(io.BytesIO(uploaded_bytes))
-        source_label = f"Uploaded File: {file_name} ({len(raw_df):,} rows)"
-    else:
-        csv_path = ensure_data_exists("data/netflix_titles.csv")
-        raw_df = pd.read_csv(csv_path)
-        source_label = f"Catalog Dataset: data/netflix_titles.csv ({len(raw_df):,} rows)"
+    csv_path = ensure_data_exists("data/netflix_titles.csv")
+    raw_df = pd.read_csv(csv_path)
+    source_label = f"Kaggle Dataset: data/netflix_titles.csv ({len(raw_df):,} rows)"
 
     # Clean data & capture audit metrics
     cleaned_df, hygiene_report = clean_netflix_data(raw_df)
@@ -292,20 +288,10 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### 📥 Data Source Manager")
-    uploaded_file = st.file_uploader(
-        "Drop Kaggle `netflix_titles.csv`",
-        type=["csv"],
-        help="Upload the official Kaggle dataset by Shivam Bansal to instantly evaluate real data, or leave empty to use the realistic synthetic fallback."
-    )
+    raw_df, df, hygiene_report, data_source_label = load_and_process_catalog()
 
-    if uploaded_file is not None:
-        file_bytes = uploaded_file.getvalue()
-        raw_df, df, hygiene_report, data_source_label = load_and_process_catalog(file_bytes, uploaded_file.name)
-        st.success(f"Loaded {uploaded_file.name}")
-    else:
-        raw_df, df, hygiene_report, data_source_label = load_and_process_catalog()
-        st.info("Using automated fallback engine (100% schema parity).")
+    st.markdown("### 📥 Data Source")
+    st.success(f"Connected to Kaggle Dataset\nTotal Records: {len(df):,}")
 
     st.markdown("---")
     st.markdown("### 🎛️ Strategic Slicers")
@@ -496,15 +482,13 @@ with tab1:
         </div>
     """, unsafe_allow_html=True)
 
-    chart_col1, chart_col2 = st.columns(2)
+    st.markdown("### Catalog Expansion Velocity")
+    growth_fig = plot_catalog_growth(filtered_df)
+    st.plotly_chart(growth_fig, use_container_width=True)
 
-    with chart_col1:
-        growth_fig = plot_catalog_growth(filtered_df)
-        st.plotly_chart(growth_fig, use_container_width=True)
-
-    with chart_col2:
-        lag_fig = plot_acquisition_lag_trend(filtered_df)
-        st.plotly_chart(lag_fig, use_container_width=True)
+    st.markdown("### The Studio Defense Pivot (Originals vs. Licensed)")
+    lag_fig = plot_acquisition_lag_trend(filtered_df)
+    st.plotly_chart(lag_fig, use_container_width=True)
 
     # Quantitative Breakdown Table
     st.markdown("#### 📊 Annual Ingestion & Strategy Breakdown")
@@ -524,8 +508,18 @@ with tab1:
         summary_table["TV_Share_%"] = (summary_table["TV_Shows"] / summary_table["Total_Added"] * 100).round(1)
         summary_table["Originals_Proxy_%"] = (summary_table["Same_Year_Releases"] / summary_table["Total_Added"] * 100).round(1)
 
+        formatted_summary = summary_table.style.format({
+            "Total_Added": "{:,}",
+            "Movies": "{:,}",
+            "TV_Shows": "{:,}",
+            "Same_Year_Releases": "{:,}",
+            "Back_Catalog": "{:,}",
+            "TV_Share_%": "{:.1f}%",
+            "Originals_Proxy_%": "{:.1f}%"
+        })
+
         st.dataframe(
-            summary_table,
+            formatted_summary,
             use_container_width=True,
             hide_index=True
         )
@@ -550,6 +544,7 @@ with tab2:
     """, unsafe_allow_html=True)
 
     # Top Countries Chart
+    st.markdown("### Top Production Powerhouses by Target Audience Tier")
     country_fig = plot_top_countries_audience(filtered_df, top_n=14)
     st.plotly_chart(country_fig, use_container_width=True)
 
@@ -573,8 +568,17 @@ with tab2:
         country_summary["Mature_%"] = (country_summary["Mature_Adults"] / country_summary["Total_Titles"] * 100).round(1)
         country_summary["Family_%"] = (country_summary["Family_Teens"] / country_summary["Total_Titles"] * 100).round(1)
 
+        formatted_country_summary = country_summary.style.format({
+            "Total_Titles": "{:,}",
+            "Mature_Adults": "{:,}",
+            "Family_Teens": "{:,}",
+            "Kids": "{:,}",
+            "Mature_%": "{:.1f}%",
+            "Family_%": "{:.1f}%"
+        })
+
         st.dataframe(
-            country_summary,
+            formatted_country_summary,
             use_container_width=True,
             hide_index=True
         )
@@ -600,10 +604,11 @@ with tab3:
     """, unsafe_allow_html=True)
 
     # Side-by-side distributions
+    st.markdown("### Runtime Optimization & Format Mechanics")
     dist_fig = plot_duration_distributions(filtered_df)
     st.plotly_chart(dist_fig, use_container_width=True)
 
-    st.markdown("#### 🧬 Genre Cross-Pollination Analysis")
+    st.markdown("### Genre Co-Occurrence Matrix")
     st.markdown("Discover which genres Netflix most frequently bundles together to target niche subscriber demographics.")
 
     heatmap_fig = plot_genre_cooccurrence(filtered_df, top_n=10)
@@ -634,25 +639,21 @@ with tab4:
     st.markdown("<br>", unsafe_allow_html=True)
 
     # Missing Director Hypothesis Deep Dive
-    dir_col1, dir_col2 = st.columns([1, 1])
+    st.markdown("### The 'Missing Director' Hypothesis")
+    st.markdown(f"""
+        A common trap in novice EDA is assuming that null values in the `director` column are data collection errors.
+        Our hypothesis proves that **missing director data is structural to the medium of episodic television**:
+        
+        * **Movies Missing Director:** `{hygiene_report['director_hypothesis']['movie_missing_dir_pct']}%` 
+          ({hygiene_report['director_hypothesis']['movie_missing_dir']:,} of {hygiene_report['director_hypothesis']['movie_total']:,})
+        * **TV Shows Missing Director:** `{hygiene_report['director_hypothesis']['tv_missing_dir_pct']}%` 
+          ({hygiene_report['director_hypothesis']['tv_missing_dir']:,} of {hygiene_report['director_hypothesis']['tv_total']:,})
+        
+        {hygiene_report['director_hypothesis']['explanation']}
+    """)
 
-    with dir_col1:
-        st.markdown("#### 🔬 The 'Missing Director' Hypothesis")
-        st.markdown(f"""
-            A common trap in novice EDA is assuming that null values in the `director` column are data collection errors.
-            Our hypothesis proves that **missing director data is structural to the medium of episodic television**:
-            
-            * **Movies Missing Director:** `{hygiene_report['director_hypothesis']['movie_missing_dir_pct']}%` 
-              ({hygiene_report['director_hypothesis']['movie_missing_dir']:,} of {hygiene_report['director_hypothesis']['movie_total']:,})
-            * **TV Shows Missing Director:** `{hygiene_report['director_hypothesis']['tv_missing_dir_pct']}%` 
-              ({hygiene_report['director_hypothesis']['tv_missing_dir']:,} of {hygiene_report['director_hypothesis']['tv_total']:,})
-            
-            {hygiene_report['director_hypothesis']['explanation']}
-        """)
-
-    with dir_col2:
-        dir_fig = plot_missing_directors_comparison(hygiene_report)
-        st.plotly_chart(dir_fig, use_container_width=True)
+    dir_fig = plot_missing_directors_comparison(hygiene_report)
+    st.plotly_chart(dir_fig, use_container_width=True)
 
     # Missing Value Audit Table Before vs After
     st.markdown("#### 📋 Missing Value Audit Ledger (Before vs. After Pipeline)")
@@ -665,7 +666,16 @@ with tab4:
         "Missing_Pct": "Cleaned_Missing_%"
     })
     audit_table = pd.merge(b_df, a_df, on="Column", how="outer").fillna(0)
-    st.dataframe(audit_table, use_container_width=True, hide_index=True)
+    audit_table["Raw_Missing_Count"] = audit_table["Raw_Missing_Count"].astype(int)
+    audit_table["Cleaned_Missing_Count"] = audit_table["Cleaned_Missing_Count"].astype(int)
+
+    formatted_audit = audit_table.style.format({
+        "Raw_Missing_Count": "{:,}",
+        "Cleaned_Missing_Count": "{:,}",
+        "Raw_Missing_%": "{:.2f}%",
+        "Cleaned_Missing_%": "{:.2f}%"
+    })
+    st.dataframe(formatted_audit, use_container_width=True, hide_index=True)
 
     # Cleaned Dataset Inspector & Export
     st.markdown("#### 🔍 Interactive Dataset Inspector & Export")

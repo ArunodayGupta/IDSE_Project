@@ -48,7 +48,7 @@ def _apply_dark_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.
     """Helper to apply consistent modern Netflix dark styling to any Plotly figure."""
     fig.update_layout(
         title={
-            "text": f"<b>{title}</b>",
+            "text": f"<b>{title}</b>" if title else "",
             "y": 0.95,
             "x": 0.03,
             "xanchor": "left",
@@ -177,7 +177,7 @@ def plot_catalog_growth(df: pd.DataFrame) -> go.Figure:
 
     _apply_dark_theme(
         fig,
-        title="Catalog Expansion Velocity: Movies vs. TV Shows (2010–Present)",
+        title="",
         height=430
     )
     fig.update_xaxes(title="Year Added to Netflix")
@@ -231,7 +231,7 @@ def plot_acquisition_lag_trend(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(barmode="stack")
     _apply_dark_theme(
         fig,
-        title="The Studio Defense Pivot: Evolution from Back-Catalog to Originals (100% Mix)",
+        title="",
         height=430
     )
     fig.update_xaxes(title="Year Added")
@@ -285,7 +285,7 @@ def plot_top_countries_audience(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
     fig.update_layout(barmode="stack")
     _apply_dark_theme(
         fig,
-        title=f"Top {top_n} Production Powerhouses by Target Audience Tier",
+        title="",
         height=460
     )
     fig.update_xaxes(title="Number of Titles Produced")
@@ -341,7 +341,7 @@ def plot_genre_cooccurrence(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
 
     _apply_dark_theme(
         fig,
-        title=f"Genre Co-Occurrence Heatmap (Top {top_n} Genres)",
+        title="",
         height=480
     )
     fig.update_xaxes(tickangle=-35)
@@ -429,7 +429,7 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
             row=1, col=2
         )
 
-    _apply_dark_theme(fig, title="Runtime Optimization & Format Mechanics", height=430)
+    _apply_dark_theme(fig, title="", height=430)
     fig.update_xaxes(title_text="Duration (Minutes)", row=1, col=1)
     fig.update_yaxes(title_text="Number of Movies", row=1, col=1)
     fig.update_xaxes(title_text="Season Count", row=1, col=2)
@@ -470,7 +470,7 @@ def plot_missing_directors_comparison(hygiene_report: Dict[str, Any]) -> go.Figu
         hovertemplate="<b>%{x}</b><br>Missing Director: %{y}%<extra></extra>"
     ))
 
-    _apply_dark_theme(fig, title="The Missing Director Anomaly: Movies vs. TV Shows", height=350)
+    _apply_dark_theme(fig, title="", height=350)
     fig.update_yaxes(title="Missing Director Rate (%)", range=[0, 100])
     fig.update_layout(showlegend=False)
     return fig

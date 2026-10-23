@@ -8,7 +8,7 @@
 
 An executive-level **Exploratory Data Analysis (EDA) and Business Intelligence web application** investigating Netflix's transition from a studio DVD/digital syndication model into a vertically integrated, global streaming hegemon.
 
-Built with a modular Python pipeline, interactive **Plotly** visualizations, and an executive **Streamlit** dashboard—featuring an automated synthetic data fallback engine for immediate out-of-the-box execution.
+Built with a modular Python pipeline, interactive **Plotly** visualizations, and an executive **Streamlit** dashboard powered by the official 8,800+ title Kaggle Netflix catalog dataset.
 
 ---
 
@@ -30,10 +30,10 @@ Built with a modular Python pipeline, interactive **Plotly** visualizations, and
 netflix-content-strategy-eda/
 ├── data/
 │   ├── .gitkeep
-│   └── netflix_titles.csv          # Real Kaggle dataset or automated synthetic fallback
+│   └── netflix_titles.csv          # Official Kaggle dataset (8,800+ titles)
 ├── src/
 │   ├── __init__.py                 # Clean package exports
-│   ├── data_generator.py           # Auto-fallback synthetic data generator (2,000 rows)
+│   ├── data_generator.py           # Dataset presence verification module
 │   ├── data_cleaner.py             # Missing value audit, string parsing & hypothesis testing
 │   ├── feature_engineer.py         # Licensing lag, audience tiering, multi-label exploders & metadata soup
 │   ├── model_trainer.py            # TF-IDF & Cosine Similarity NLP Content Recommender
@@ -49,17 +49,16 @@ netflix-content-strategy-eda/
 
 ```mermaid
 flowchart LR
-    A["Raw Data Ingestion<br>(Kaggle CSV or Fallback)"] --> B["Data Hygiene & Cleaning<br>(Date/Duration Regex, Imputation)"]
+    A["Raw Data Ingestion<br>(data/netflix_titles.csv)"] --> B["Data Hygiene & Cleaning<br>(Date/Duration Regex, Imputation)"]
     B --> C["Feature Engineering<br>(Lag, Audience Tiers, Metadata Soup)"]
     C --> D["Multi-Label Exploder & Visual Engine<br>(Country/Genre Arrays, Plotly Dark)"]
     D --> E["NLP ML Recommender Engine<br>(TF-IDF Vectorizer + Cosine Sim)"]
     E --> F["Streamlit Executive UI<br>(Slicers, KPIs, Deep Dives, AI Cards)"]
 ```
 
-1. **Phase 1: Ingestion & Auto-Fallback Engine (`src/data_generator.py`)**
-   - Automatically detects if `data/netflix_titles.csv` is present.
-   - If missing, programmatically generates a realistic 2,000-row synthetic dataset matching the exact schema, null distributions, date formatting quirks, and duration strings of the Kaggle dataset.
-   - Eliminates `FileNotFoundError` and enables immediate zero-configuration testing.
+1. **Phase 1: Ingestion & Dataset Verification (`src/data_generator.py`)**
+   - Validates that `data/netflix_titles.csv` is present in the `data/` directory.
+   - Raises informative `FileNotFoundError` if missing, guaranteeing reproducible pipeline execution.
 
 2. **Phase 2: Data Hygiene & Parsing Pipeline (`src/data_cleaner.py`)**
    - Generates a quantitative **Missing Value Audit Ledger** before and after cleaning.
@@ -123,17 +122,11 @@ jupyter notebook notebooks/exploratory_analysis.ipynb
 
 ---
 
-## 🔄 Using Real Kaggle Data
+## 📊 Kaggle Dataset Integration
 
-The dashboard is 100% compatible with the official Kaggle dataset: **[Netflix Movies and TV Shows by Shivam Bansal](https://www.kaggle.com/datasets/shivamb/netflix-shows)**.
+The dashboard permanently connects to the official Kaggle dataset: **[Netflix Movies and TV Shows by Shivam Bansal](https://www.kaggle.com/datasets/shivamb/netflix-shows)**.
 
-You have two easy ways to plug in the real 8,800+ title dataset:
-
-1. **In-App Drag-and-Drop:** Open the Streamlit dashboard and drag `netflix_titles.csv` directly into the sidebar file uploader. The entire app will dynamically recompute and re-render in seconds.
-2. **File Replacement:** Download `netflix_titles.csv` and drop it into the `data/` folder:
-   ```bash
-   cp ~/Downloads/netflix_titles.csv data/netflix_titles.csv
-   ```
+The full dataset of **8,807 titles** is placed at `data/netflix_titles.csv`. The data pipeline validates and loads this catalog automatically upon application startup.
 
 ---
 
