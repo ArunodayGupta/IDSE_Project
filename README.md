@@ -177,6 +177,3 @@ You have two easy ways to plug in the real 8,800+ title dataset:
 * **Statistical Modeling & Distribution:** `scipy>=1.11.0`
 
 ---
-
-## 👤 Author & Portfolio Context
-Developed as a production-grade portfolio project demonstrating end-to-end data science capabilities: from rigorous data cleaning, schema validation, and strategic feature engineering to executive-ready business storytelling and interactive dashboard deployment.
