@@ -22,6 +22,7 @@ from src.data_explorer import (
     classify_column_type,
     compute_overview_metrics,
     format_bytes,
+    compute_dataset_identity,
 )
 from src.cleaning_lab import (
     generate_data_quality_audit,
@@ -39,21 +40,28 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
     """Renders an elevated visual summary of the What Changed comparison."""
     step_info = comparison["step_info"]
     op_name = step_info.get("operation", "Transformation")
+    status = comparison.get("status", "completed").upper()
+    is_preview = status == "PREVIEW"
+
+    badge_bg = "#FFF8E6" if is_preview else "#E6FBF2"
+    badge_color = "#D97706" if is_preview else "#00D97E"
+    badge_border = "#FCD34D" if is_preview else "#A6F4D0"
+    border_left = "#D97706" if is_preview else "#00D97E"
 
     st.markdown(f"""
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #00D97E; border-radius: 8px; padding: 18px 20px; margin: 16px 0;">
+        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid {border_left}; border-radius: 8px; padding: 18px 20px; margin: 16px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div style="font-size: 1.15rem; font-weight: 700; color: #2B3035;">
                     🔍 What Changed? — {op_name}
                 </div>
-                <span style="font-size: 0.8rem; font-weight: 600; background: #E6FBF2; color: #00D97E; padding: 4px 10px; border-radius: 4px; border: 1px solid #A6F4D0;">
-                    COMPLETED
+                <span style="font-size: 0.8rem; font-weight: 600; background: {badge_bg}; color: {badge_color}; padding: 4px 10px; border-radius: 4px; border: 1px solid {badge_border};">
+                    {status}
                 </span>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         st.metric(
             "Rows Delta",
@@ -80,6 +88,13 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
             delta=f"{comparison['duplicates_delta']:,} rows",
             delta_color="inverse"
         )
+    with c5:
+        st.metric(
+            "Changed Cells",
+            f"{comparison.get('changed_cells_count', 0):,}",
+            delta=f"{comparison.get('changed_cells_count', 0):,} cells modified" if comparison.get('changed_cells_count', 0) > 0 else "0 modified",
+            delta_color="off"
+        )
 
     # Detailed differences
     if comparison["columns_added"]:
@@ -90,8 +105,20 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
         type_str = ", ".join(f"`{col}` ({info['before']} ➔ {info['after']})" for col, info in comparison["type_changes"].items())
         st.info(f"🔄 **Data Types Converted:** {type_str}")
 
+    # Representative Changed Cells in Retained Rows
+    rep_changes = comparison.get("representative_changed_cells", [])
+    if rep_changes:
+        with st.expander(f"🔬 Inspect Modified Cells ({comparison.get('changed_cells_count', 0):,} cells modified across retained rows)", expanded=False):
+            st.dataframe(pd.DataFrame(rep_changes), use_container_width=True, hide_index=True)
+
+    # Representative Removed Records
+    rep_removed = comparison.get("representative_removed_records", [])
+    if rep_removed:
+        with st.expander(f"🗑️ Inspect Representative Removed Records ({comparison.get('rows_removed_count', 0):,} rows dropped)", expanded=False):
+            st.dataframe(pd.DataFrame(rep_removed), use_container_width=True)
+
     # Column Stats Comparison if available
-    if comparison["stats_comparison"]:
+    if comparison.get("stats_comparison"):
         st.markdown("**Descriptive Statistics Delta:**")
         stats_rows = []
         for col, s in comparison["stats_comparison"].items():
@@ -142,7 +169,6 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
     if shared_source_df is None or shared_source_df.empty:
         # Fallback to netflix_raw_df if available
         if netflix_raw_df is not None and not netflix_raw_df.empty:
-            from src.data_explorer import compute_dataset_identity
             shared_source_df = netflix_raw_df.copy()
             source_name = "Built-in Netflix Catalog"
             source_identity = compute_dataset_identity(shared_source_df, source_name=source_name)
@@ -765,3 +791,49 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
                 mime="application/json",
                 help="Exports the serializable ordered transformation configuration plan for replay."
             )
+
+        st.markdown("---")
+        st.markdown("##### 🔄 Import & Replay Transformation Pipeline (JSON)")
+        st.caption("Replay an exported JSON transformation pipeline plan transactionally on the current active raw source dataset.")
+
+        uploaded_json_file = st.file_uploader(
+            "Upload Transformation Plan (.json):",
+            type=["json"],
+            key="uploader_pipeline_json",
+            help="Select a valid JSON pipeline plan exported from DataLab Clean & Transform."
+        )
+
+        p_json_text = ""
+        if uploaded_json_file is not None:
+            try:
+                p_json_text = uploaded_json_file.getvalue().decode("utf-8")
+            except Exception as e:
+                st.error(f"Failed to read JSON file: {e}")
+        else:
+            p_json_text = st.text_area(
+                "Or paste JSON Pipeline Plan text directly:",
+                placeholder="{\"pipeline_steps\": [...]}",
+                key="textarea_pipeline_json"
+            )
+
+        if p_json_text.strip():
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("🔍 Validate Pipeline Plan", key="btn_validate_pipeline"):
+                    v_res = current_manager.import_pipeline_json(p_json_text.strip(), validate_only=True)
+                    if v_res.get("success"):
+                        st.success(f"✅ Pipeline is valid! Found {v_res.get('step_count')} compatible operations ready for replay.")
+                        if v_res.get("audit_preview"):
+                            preview_rows = [{"Step": p["step"], "Operation": p["operation"], "Details": str(p["details"])} for p in v_res["audit_preview"]]
+                            st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.error(f"❌ Validation failed: {v_res.get('error')}")
+
+            with btn_col2:
+                if st.button("🚀 Apply Pipeline Replay", key="btn_apply_pipeline_replay", type="primary"):
+                    r_res = current_manager.import_pipeline_json(p_json_text.strip(), validate_only=False)
+                    if r_res.get("success"):
+                        st.success(f"🎉 Replay succeeded! Applied {r_res.get('applied_steps')} operations. Working dataset now has {r_res.get('working_rows'):,} rows × {r_res.get('working_cols')} columns.")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Replay failed: {r_res.get('error')}")

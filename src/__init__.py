@@ -45,6 +45,16 @@ from .cleaning_lab import (
     export_cleaning_report,
 )
 from .cleaning_lab_ui import render_cleaning_lab_tab
+from .model_lab import (
+    detect_suggested_task,
+    validate_modeling_inputs,
+    build_preprocessor,
+    train_and_evaluate_model,
+    extract_feature_importances,
+    compute_error_analysis,
+    RecommenderArenaService,
+)
+from .model_lab_ui import render_model_lab_tab
 
 __all__ = [
     "ensure_data_exists",
@@ -84,4 +94,12 @@ __all__ = [
     "export_working_csv",
     "export_cleaning_report",
     "render_cleaning_lab_tab",
+    "detect_suggested_task",
+    "validate_modeling_inputs",
+    "build_preprocessor",
+    "train_and_evaluate_model",
+    "extract_feature_importances",
+    "compute_error_analysis",
+    "RecommenderArenaService",
+    "render_model_lab_tab",
 ]

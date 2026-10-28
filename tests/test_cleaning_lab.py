@@ -21,6 +21,10 @@ from src.cleaning_lab import (
     export_working_csv,
     export_cleaning_report,
     NETFLIX_RECIPES,
+    op_convert_type,
+    op_feature_binning,
+    op_feature_category_map,
+    op_feature_binary_indicator,
 )
 
 
@@ -509,6 +513,185 @@ class TestDataLabCleaningLab(unittest.TestCase):
         loaded = json.loads(pipeline_json)
         self.assertEqual(len(loaded["steps"]), 1)
         self.assertEqual(loaded["steps"][0]["op_type"], "impute_numeric")
+
+    def test_boolean_conversion_explicit_mappings_and_invalids(self):
+        """Regression test A1: Boolean conversion explicitly maps true/false strings, preserves nulls, and rejects invalids."""
+        df = pd.DataFrame({
+            "bool_raw": ["True", "False", "1", "0", "yes", "no", "y", "n", None, "invalid_str", True, False, 1, 0]
+        })
+        res_op, details = op_convert_type(df, column="bool_raw", target_type="boolean", errors="coerce")
+        s = res_op["bool_raw"]
+
+        # Index 0: "True" -> True
+        self.assertEqual(s.iloc[0], True)
+        # Index 1: "False" -> False (NOT True from naive astype(bool)!)
+        self.assertEqual(s.iloc[1], False)
+        # Index 2: "1" -> True
+        self.assertEqual(s.iloc[2], True)
+        # Index 3: "0" -> False
+        self.assertEqual(s.iloc[3], False)
+        # Index 4: "yes" -> True
+        self.assertEqual(s.iloc[4], True)
+        # Index 5: "no" -> False
+        self.assertEqual(s.iloc[5], False)
+        # Index 6: "y" -> True
+        self.assertEqual(s.iloc[6], True)
+        # Index 7: "n" -> False
+        self.assertEqual(s.iloc[7], False)
+        # Index 8: None -> pd.NA (NOT False!)
+        self.assertTrue(pd.isna(s.iloc[8]))
+        # Index 9: "invalid_str" -> pd.NA (rejected)
+        self.assertTrue(pd.isna(s.iloc[9]))
+        self.assertGreater(details["invalid_rejected"], 0)
+        self.assertEqual(details["missing_preserved"], 2)
+
+    def test_string_conversion_preserves_missing_values(self):
+        """Regression test A1: String conversion does not turn actual missing values into 'nan' or 'None'."""
+        df = pd.DataFrame({
+            "col_mixed": ["Hello", None, np.nan, "World"]
+        })
+        res_op, details = op_convert_type(df, column="col_mixed", target_type="string")
+        s = res_op["col_mixed"]
+
+        self.assertEqual(s.iloc[0], "Hello")
+        self.assertTrue(pd.isna(s.iloc[1]))
+        self.assertTrue(pd.isna(s.iloc[2]))
+        self.assertEqual(str(s.iloc[1]), "<NA>")
+        self.assertEqual(str(s.iloc[2]), "<NA>")
+        self.assertEqual(s.iloc[3], "World")
+
+    def test_constant_fill_with_falsy_values_and_categorical(self):
+        """Regression test A2: Constant-fill supports falsy values (0, False, '') and updates categorical categories."""
+        # 1. Fill with 0
+        df_zero = pd.DataFrame({"score": [10.0, None, 20.0]})
+        mgr_zero = WorkingDatasetManager(df_zero)
+        mgr_zero.apply_step({
+            "op_type": "fill_constant",
+            "column": "score",
+            "fill_value": 0,
+        })
+        self.assertEqual(mgr_zero.get_working_df().loc[1, "score"], 0)
+
+        # 2. Fill with False
+        df_bool = pd.DataFrame({"flag": [True, None, True]})
+        mgr_bool = WorkingDatasetManager(df_bool)
+        mgr_bool.apply_step({
+            "op_type": "fill_constant",
+            "column": "flag",
+            "fill_value": False,
+        })
+        self.assertEqual(mgr_bool.get_working_df().loc[1, "flag"], False)
+
+        # 3. Fill with empty string ""
+        df_str = pd.DataFrame({"txt": ["A", None, "B"]})
+        mgr_str = WorkingDatasetManager(df_str)
+        mgr_str.apply_step({
+            "op_type": "fill_constant",
+            "column": "txt",
+            "fill_value": "",
+        })
+        self.assertEqual(mgr_str.get_working_df().loc[1, "txt"], "")
+
+        # 4. Fill categorical column with new category
+        df_cat = pd.DataFrame({"genre": pd.Categorical(["Action", None, "Drama"])})
+        mgr_cat = WorkingDatasetManager(df_cat)
+        mgr_cat.apply_step({
+            "op_type": "fill_constant",
+            "column": "genre",
+            "fill_value": "Documentary",
+        })
+        self.assertEqual(mgr_cat.get_working_df().loc[1, "genre"], "Documentary")
+        self.assertIn("Documentary", mgr_cat.get_working_df()["genre"].cat.categories)
+
+    def test_feature_engineering_preserves_missing_values(self):
+        """Regression test A3: Binning, category mapping, and binary indicators preserve missing inputs."""
+        df = pd.DataFrame({
+            "num_val": [10.0, 20.0, np.nan, 40.0],
+            "cat_val": ["apple", None, "banana", "orange"],
+        })
+
+        # Binning
+        res_bin, det_bin = op_feature_binning(df, column="num_val", new_col_name="num_bin")
+        self.assertTrue(pd.isna(res_bin.loc[2, "num_bin"]))
+        self.assertNotEqual(res_bin.loc[2, "num_bin"], "nan")
+
+        # Category mapping
+        mapping = {"apple": "Fruit_A", "banana": "Fruit_B"}
+        res_map, det_map = op_feature_category_map(df, column="cat_val", mapping=mapping, default_val="Other", new_col_name="cat_map")
+        self.assertEqual(res_map.loc[0, "cat_map"], "Fruit_A")
+        # Missing input (row 1) must remain NaN, NOT become 'Other' or 'nan'
+        self.assertTrue(pd.isna(res_map.loc[1, "cat_map"]))
+        # Unmapped known input (row 3: 'orange') gets 'Other'
+        self.assertEqual(res_map.loc[3, "cat_map"], "Other")
+
+        # Binary indicator
+        res_bin_ind, _ = op_feature_binary_indicator(df, column="cat_val", target_value="apple", new_col_name="is_apple", preserve_missing=True)
+        self.assertEqual(res_bin_ind.loc[0, "is_apple"], 1.0)
+        # Missing input must remain NaN, NOT silently become 0.0
+        self.assertTrue(pd.isna(res_bin_ind.loc[1, "is_apple"]))
+        self.assertEqual(res_bin_ind.loc[2, "is_apple"], 0.0)
+
+    def test_json_pipeline_import_validation_and_transactional_replay(self):
+        """Regression test A6: JSON pipeline import validates schema, replays deterministically, and rolls back on error."""
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "score": [10.0, np.nan, 30.0],
+            "note": ["  hello ", " world  ", "test"]
+        })
+        mgr = WorkingDatasetManager(df, source_name="test_source")
+
+        # 1. Valid plan JSON
+        valid_plan = json.dumps({
+            "pipeline_steps": [
+                {"op_type": "impute_numeric", "params": {"column": "score", "strategy": "mean"}},
+                {"op_type": "normalize_text", "params": {"column": "note", "strip_whitespace": True, "case_style": "upper"}}
+            ]
+        })
+
+        # Dry run validation
+        val_res = mgr.import_pipeline_json(valid_plan, validate_only=True)
+        self.assertTrue(val_res["success"])
+        self.assertEqual(val_res["step_count"], 2)
+
+        # Full transactional execution
+        apply_res = mgr.import_pipeline_json(valid_plan, validate_only=False)
+        self.assertTrue(apply_res["success"])
+        self.assertEqual(len(mgr.applied_steps), 2)
+        self.assertEqual(mgr.get_working_df().loc[1, "score"], 20.0)
+        self.assertEqual(mgr.get_working_df().loc[0, "note"], "HELLO")
+
+        # 2. Invalid plan JSON (unsupported operation or failing column)
+        invalid_plan = json.dumps({
+            "pipeline_steps": [
+                {"op_type": "impute_numeric", "params": {"column": "score", "strategy": "mean"}},
+                {"op_type": "unallowlisted_evil_op", "params": {}}
+            ]
+        })
+        snap_df = mgr.get_working_df().copy()
+        fail_res = mgr.import_pipeline_json(invalid_plan, validate_only=False)
+        self.assertFalse(fail_res["success"])
+        # Working copy must remain unchanged
+        pd.testing.assert_frame_equal(mgr.get_working_df(), snap_df)
+
+    def test_what_changed_retained_cells_and_removed_rows(self):
+        """Regression test A5: What Changed identifies cell modifications and representative removed records."""
+        df_before = pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "title": ["A", "B", "C", "D"],
+            "score": [10.0, np.nan, 30.0, 40.0]
+        })
+
+        # Drop row 3 and fill NaN in row 1
+        df_after = df_before.iloc[:3].copy()
+        df_after.loc[1, "score"] = 20.0
+
+        diff = compute_what_changed(df_before, df_after, affected_columns=["score"])
+        self.assertEqual(diff["rows_removed_count"], 1)
+        self.assertEqual(len(diff["representative_removed_records"]), 1)
+        self.assertEqual(diff["representative_removed_records"][0]["id"], 4)
+        self.assertEqual(diff["changed_cells_count"], 1)
+        self.assertEqual(len(diff["representative_changed_cells"]), 1)
+        self.assertEqual(diff["representative_changed_cells"][0]["column"], "score")
 
 
 if __name__ == "__main__":

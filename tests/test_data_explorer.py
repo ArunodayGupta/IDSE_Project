@@ -512,19 +512,61 @@ class TestDataLabCoreExplorer(unittest.TestCase):
         self.assertEqual(set(filtered["category"].tolist()), set(target_cats))
 
     def test_date_range_filtering_inclusive_bounds(self):
-        """Regression test A5: Date filtering respects inclusive boundaries on start and end dates."""
+        """Regression test A5/A7: Date filtering respects inclusive start, inclusive end day (exclusive next-day midnight), handles times, invalid and missing dates."""
         df = pd.DataFrame({
-            "title": ["Movie 1", "Movie 2", "Movie 3", "Movie 4"],
-            "release_date": ["2020-01-01", "2020-06-15", "2020-12-31", "2021-01-01"]
+            "title": [
+                "Start Midnight",
+                "Mid Window",
+                "End Afternoon",
+                "End Last Second",
+                "Next Day Midnight",
+                "Way Later",
+                "Missing Date",
+                "Invalid Date"
+            ],
+            "release_date": [
+                "2020-05-10 00:00:00",
+                "2020-05-12 15:30:00",
+                "2020-05-15 14:00:00",
+                "2020-05-15 23:59:59",
+                "2020-05-16 00:00:00",
+                "2020-06-01 10:00:00",
+                None,
+                "not-a-valid-date"
+            ]
         })
 
-        # Inclusive filter from 2020-01-01 to 2020-12-31 should capture Movies 1, 2, and 3
+        # Filter window: 2020-05-10 to 2020-05-15
         filtered = apply_explorer_filters(
             df,
-            {"date_ranges": {"release_date": ("2020-01-01", "2020-12-31")}}
+            {"date_ranges": {"release_date": ("2020-05-10", "2020-05-15")}}
+        )
+        matched_titles = filtered["title"].tolist()
+
+        # Must include: Start Midnight, Mid Window, End Afternoon, End Last Second
+        self.assertIn("Start Midnight", matched_titles)
+        self.assertIn("Mid Window", matched_titles)
+        self.assertIn("End Afternoon", matched_titles)
+        self.assertIn("End Last Second", matched_titles)
+
+        # Must NOT include: Next Day Midnight, Way Later, Missing Date, Invalid Date
+        self.assertNotIn("Next Day Midnight", matched_titles)
+        self.assertNotIn("Way Later", matched_titles)
+        self.assertNotIn("Missing Date", matched_titles)
+        self.assertNotIn("Invalid Date", matched_titles)
+        self.assertEqual(len(filtered), 4)
+
+    def test_date_range_filtering_with_timezone_awareness(self):
+        """Verifies timezone-aware datetime filtering does not raise TypeError."""
+        df = pd.DataFrame({
+            "dt_tz": pd.date_range("2021-01-01", periods=5, tz="UTC"),
+            "val": [1, 2, 3, 4, 5]
+        })
+        filtered = apply_explorer_filters(
+            df,
+            {"date_ranges": {"dt_tz": ("2021-01-02", "2021-01-04")}}
         )
         self.assertEqual(len(filtered), 3)
-        self.assertNotIn("Movie 4", filtered["title"].values)
 
 
 if __name__ == "__main__":

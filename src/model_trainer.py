@@ -27,16 +27,33 @@ class ContentRecommender:
         self.max_features = max_features
         self.vectorizer: Optional[TfidfVectorizer] = None
         self.tfidf_matrix = None
-        self.cosine_sim: Optional[np.ndarray] = None
+        self._cosine_sim: Optional[np.ndarray] = None
         self.df: Optional[pd.DataFrame] = None
         self.title_to_index: Dict[str, int] = {}
         self.lower_title_to_index: Dict[str, int] = {}
         self.is_fitted: bool = False
 
+    @property
+    def cosine_sim(self) -> Optional[np.ndarray]:
+        """
+        Backward-compatible property providing the full cosine similarity matrix
+        only on explicit demand, avoiding unnecessary N-by-N memory allocation.
+        """
+        if self._cosine_sim is not None:
+            return self._cosine_sim
+        if self.is_fitted and self.tfidf_matrix is not None:
+            self._cosine_sim = cosine_similarity(self.tfidf_matrix, self.tfidf_matrix)
+            return self._cosine_sim
+        return None
+
+    @cosine_sim.setter
+    def cosine_sim(self, value: Optional[np.ndarray]) -> None:
+        self._cosine_sim = value
+
     def fit(self, df: pd.DataFrame) -> "ContentRecommender":
         """
-        Fits the TF-IDF vectorizer on the metadata_soup column and calculates
-        the cosine similarity matrix.
+        Fits the TF-IDF vectorizer on the metadata_soup column and retains
+        the sparse document-term matrix for memory-safe query-time similarity.
 
         Args:
             df: DataFrame containing at least 'title' and 'metadata_soup'
@@ -67,8 +84,8 @@ class ContentRecommender:
         )
         self.tfidf_matrix = self.vectorizer.fit_transform(corpus)
 
-        # 2. Compute Cosine Similarity Matrix
-        self.cosine_sim = cosine_similarity(self.tfidf_matrix, self.tfidf_matrix)
+        # 2. Reset full matrix cache to conserve memory (computed on-demand per query)
+        self._cosine_sim = None
 
         # 3. Build fast O(1) title lookup index maps
         self.title_to_index = {}
@@ -92,7 +109,7 @@ class ContentRecommender:
     ) -> Union[pd.DataFrame, List[str]]:
         """
         Recommends the top_n most similar titles to the given title based on
-        cosine similarity of metadata soup vectors.
+        memory-safe sparse cosine similarity of metadata soup vectors.
 
         Args:
             title: Title string of the target movie or TV show.
@@ -103,7 +120,7 @@ class ContentRecommender:
         Returns:
             pd.DataFrame or List[str] with top_n recommended titles.
         """
-        if not self.is_fitted or self.df is None or self.cosine_sim is None or len(self.df) == 0:
+        if not self.is_fitted or self.df is None or self.tfidf_matrix is None or len(self.df) == 0:
             return pd.DataFrame() if return_df else []
 
         # Find index of target title
@@ -122,8 +139,10 @@ class ContentRecommender:
         if idx is None:
             return pd.DataFrame() if return_df else []
 
-        # Enumerate similarity scores for target title
-        sim_scores = list(enumerate(self.cosine_sim[idx]))
+        # Memory-safe query vector dot product against catalog sparse matrix
+        query_vec = self.tfidf_matrix[idx]
+        sim_scores_array = cosine_similarity(query_vec, self.tfidf_matrix).flatten()
+        sim_scores = list(enumerate(sim_scores_array))
 
         # Sort descending by similarity score
         sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
@@ -151,6 +170,7 @@ class ContentRecommender:
 
         result_df = self.df.iloc[indices].copy()
         result_df["similarity_score"] = scores
+        result_df["similarity"] = scores
 
         if not return_df:
             return result_df["title"].tolist()

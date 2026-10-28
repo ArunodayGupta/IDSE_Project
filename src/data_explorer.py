@@ -885,11 +885,21 @@ def apply_explorer_filters(
                 except (ValueError, TypeError):
                     dt_series = pd.to_datetime(df[col], errors="coerce")
 
+            # Ensure timezone-naive comparison for consistency
+            if hasattr(dt_series, "dt") and dt_series.dt.tz is not None:
+                dt_series = dt_series.dt.tz_localize(None)
+
             if start_dt:
-                mask = mask & (dt_series >= pd.to_datetime(start_dt))
+                start_boundary = pd.to_datetime(start_dt).normalize()
+                if start_boundary.tzinfo is not None:
+                    start_boundary = start_boundary.tz_localize(None)
+                mask = mask & (dt_series >= start_boundary)
             if end_dt:
-                end_timestamp = pd.to_datetime(end_dt) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
-                mask = mask & (dt_series <= end_timestamp)
+                # Inclusive through selected date: exclusive boundary at midnight after the selected end date
+                end_boundary = pd.to_datetime(end_dt).normalize() + pd.Timedelta(days=1)
+                if end_boundary.tzinfo is not None:
+                    end_boundary = end_boundary.tz_localize(None)
+                mask = mask & (dt_series < end_boundary)
 
     return df[mask].copy()
 

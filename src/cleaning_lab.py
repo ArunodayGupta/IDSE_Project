@@ -202,6 +202,8 @@ def op_impute_missing(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Imputes missing values in a column using mean, median, mode, or constant value.
+    Properly handles pandas categorical types by registering new categories prior to assignment,
+    and supports falsy constants (0, False, empty string).
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found in dataset.")
@@ -241,12 +243,20 @@ def op_impute_missing(
             raise ValueError(f"Cannot compute mode for column '{column}': all values are missing.")
         modes = valid_s.mode()
         fill_val = modes.iloc[0] if not modes.empty else "Unknown"
+        # Support pandas categorical columns safely
+        if isinstance(result_df[column].dtype, pd.CategoricalDtype):
+            if fill_val not in result_df[column].cat.categories:
+                result_df[column] = result_df[column].cat.add_categories([fill_val])
         result_df.loc[missing_mask, column] = fill_val
 
     elif strategy == "constant":
         if constant_value is None:
             raise ValueError("Constant value must be provided for constant imputation.")
         fill_val = constant_value
+        # Support pandas categorical columns safely
+        if isinstance(result_df[column].dtype, pd.CategoricalDtype):
+            if fill_val not in result_df[column].cat.categories:
+                result_df[column] = result_df[column].cat.add_categories([fill_val])
         result_df.loc[missing_mask, column] = fill_val
 
     else:
@@ -330,35 +340,90 @@ def op_convert_type(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Converts a column to a target data type: 'numeric', 'datetime', 'categorical', 'string', 'boolean'.
+    Explicitly handles booleans without naive .astype(bool), and preserves missing values when converting to string.
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
 
     result_df = df.copy()
-    orig_dtype = str(result_df[column].dtype)
-    orig_nulls = int(result_df[column].isna().sum())
+    orig_s = result_df[column]
+    orig_dtype = str(orig_s.dtype)
+    orig_nulls = int(orig_s.isna().sum())
+
+    converted_true = 0
+    converted_false = 0
+    missing_preserved = orig_nulls
+    invalid_rejected = 0
 
     if target_type == "numeric":
-        result_df[column] = pd.to_numeric(result_df[column], errors=errors)
+        result_df[column] = pd.to_numeric(orig_s, errors=errors)
     elif target_type == "datetime":
         try:
             if datetime_format:
-                result_df[column] = pd.to_datetime(result_df[column], errors=errors, format=datetime_format)
+                result_df[column] = pd.to_datetime(orig_s, errors=errors, format=datetime_format)
             else:
-                result_df[column] = pd.to_datetime(result_df[column], errors=errors, format="mixed")
+                result_df[column] = pd.to_datetime(orig_s, errors=errors, format="mixed")
         except (ValueError, TypeError):
-            result_df[column] = pd.to_datetime(result_df[column], errors=errors)
+            result_df[column] = pd.to_datetime(orig_s, errors=errors)
     elif target_type == "categorical":
-        result_df[column] = result_df[column].astype("category")
+        result_df[column] = orig_s.astype("category")
     elif target_type == "string":
-        result_df[column] = result_df[column].astype(str)
+        # Do not convert NaN to literal "nan" or None to "None"
+        # Preserve missing values accurately as pd.NA in nullable string dtype
+        new_s = pd.Series(pd.NA, index=orig_s.index, dtype="string")
+        not_na = orig_s.notna()
+        if not_na.any():
+            new_s.loc[not_na] = orig_s.loc[not_na].astype(str)
+        result_df[column] = new_s
     elif target_type == "boolean":
-        result_df[column] = result_df[column].astype(bool)
+        # Conventional representations:
+        # True: true, 1, yes, y, t
+        # False: false, 0, no, n, f
+        # Missing preserved as pd.NA using pandas BooleanDtype
+        bool_s = pd.Series(pd.NA, index=orig_s.index, dtype="boolean")
+        true_set = {"true", "1", "yes", "y", "t", "1.0"}
+        false_set = {"false", "0", "no", "n", "f", "0.0"}
+
+        for idx, val in orig_s.items():
+            if pd.isna(val):
+                continue
+            if isinstance(val, (bool, np.bool_)):
+                if val:
+                    bool_s.loc[idx] = True
+                    converted_true += 1
+                else:
+                    bool_s.loc[idx] = False
+                    converted_false += 1
+            elif isinstance(val, (int, float, np.integer, np.floating)):
+                if val == 1:
+                    bool_s.loc[idx] = True
+                    converted_true += 1
+                elif val == 0:
+                    bool_s.loc[idx] = False
+                    converted_false += 1
+                else:
+                    invalid_rejected += 1
+                    if errors == "raise":
+                        raise ValueError(f"Unrecognized boolean value '{val}' at row {idx}.")
+            else:
+                v_str = str(val).strip().lower()
+                if v_str in true_set:
+                    bool_s.loc[idx] = True
+                    converted_true += 1
+                elif v_str in false_set:
+                    bool_s.loc[idx] = False
+                    converted_false += 1
+                else:
+                    invalid_rejected += 1
+                    if errors == "raise":
+                        raise ValueError(f"Unrecognized boolean value '{val}' at row {idx}.")
+
+        result_df[column] = bool_s
     else:
         raise ValueError(f"Unsupported target type: '{target_type}'.")
 
     new_nulls = int(result_df[column].isna().sum())
-    failed_conversions = max(0, new_nulls - orig_nulls)
+    failed_conversions = max(0, new_nulls - orig_nulls) if target_type != "boolean" else invalid_rejected
 
     details = {
         "operation": "Type Conversion",
@@ -367,7 +432,14 @@ def op_convert_type(
         "target_type": target_type,
         "new_type": str(result_df[column].dtype),
         "failed_conversions": failed_conversions,
+        "missing_preserved": int(result_df[column].isna().sum()),
     }
+    if target_type == "boolean":
+        details.update({
+            "converted_true": converted_true,
+            "converted_false": converted_false,
+            "invalid_rejected": invalid_rejected,
+        })
     return result_df, details
 
 
@@ -542,27 +614,39 @@ def op_feature_binning(
     bin_type: str = "quantile",
     bins: int = 4,
     labels: Optional[List[str]] = None,
-    new_col_name: str = "binned_feature"
+    new_col_name: str = "binned_feature",
+    fill_missing_category: Optional[str] = None
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Bins numeric features into quantile bins or uniform cut bins.
+    Preserves missing values as np.nan instead of stringifying into a fake 'nan' category,
+    unless an explicit fill_missing_category label is supplied.
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
 
     result_df = df.copy()
     num_s = pd.to_numeric(result_df[column], errors="coerce")
+    is_na = num_s.isna()
+    valid_num = num_s[~is_na]
+
+    if valid_num.empty:
+        raise ValueError(f"Column '{column}' has no valid numeric values for binning.")
 
     if bin_type == "quantile":
-        # pd.qcut
         try:
-            binned = pd.qcut(num_s, q=bins, labels=labels, duplicates="drop")
+            binned = pd.qcut(valid_num, q=bins, labels=labels, duplicates="drop")
         except ValueError as e:
             raise ValueError(f"Cannot perform quantile binning: {str(e)}")
     else:  # uniform cut
-        binned = pd.cut(num_s, bins=bins, labels=labels)
+        binned = pd.cut(valid_num, bins=bins, labels=labels)
 
-    result_df[new_col_name] = binned.astype(str)
+    res = pd.Series(np.nan, index=df.index, dtype=object)
+    res.loc[binned.index] = binned.astype(str)
+    if fill_missing_category is not None and is_na.any():
+        res.loc[is_na] = str(fill_missing_category)
+
+    result_df[new_col_name] = res
 
     details = {
         "operation": "Feature: Binning",
@@ -570,6 +654,8 @@ def op_feature_binning(
         "bin_type": bin_type,
         "bins_requested": bins,
         "new_column": new_col_name,
+        "missing_preserved": int(is_na.sum()) if fill_missing_category is None else 0,
+        "valid_count": int(binned.notna().sum()),
     }
     return result_df, details
 
@@ -582,6 +668,7 @@ def op_feature_datetime_extract(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Extracts datetime parts: 'year', 'month', 'day', 'dayofweek', 'quarter'.
+    Missing or unparseable datetime inputs produce np.nan.
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
@@ -614,6 +701,7 @@ def op_feature_datetime_extract(
         "source_column": column,
         "components_extracted": components,
         "created_columns": created_cols,
+        "missing_count": int(dt_s.isna().sum()),
     }
     return result_df, details
 
@@ -626,6 +714,7 @@ def op_feature_date_diff(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Calculates time difference in days between two date columns: (col_end - col_start).
+    Missing dates produce np.nan safely.
     """
     if col_start not in df.columns or col_end not in df.columns:
         raise ValueError(f"Both '{col_start}' and '{col_end}' must exist in DataFrame.")
@@ -643,6 +732,7 @@ def op_feature_date_diff(
         "col_end": col_end,
         "new_column": new_col_name,
         "formula": f"({col_end} - {col_start}) in days",
+        "missing_count": int(diff_days.isna().sum()),
     }
     return result_df, details
 
@@ -652,27 +742,38 @@ def op_feature_category_map(
     column: str,
     mapping: Dict[str, Any],
     default_val: Optional[Any] = "Other",
-    new_col_name: str = "mapped_feature"
+    new_col_name: str = "mapped_feature",
+    preserve_missing: bool = True
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Maps categorical values using an explicit mapping dictionary.
+    Distinguishes genuinely unknown categories (assigned default_val) from missing inputs (preserved as np.nan).
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
 
     result_df = df.copy()
-    s_clean = result_df[column].astype(str).str.strip()
-    mapped = s_clean.map(mapping)
+    s = result_df[column]
+    is_na = s.isna()
+
+    res = pd.Series(np.nan, index=df.index, dtype=object)
+    non_null_s = s[~is_na].astype(str).str.strip()
+    mapped = non_null_s.map(mapping)
     if default_val is not None:
         mapped = mapped.fillna(default_val)
+    res.loc[non_null_s.index] = mapped
 
-    result_df[new_col_name] = mapped
+    if not preserve_missing and default_val is not None:
+        res.loc[is_na] = default_val
+
+    result_df[new_col_name] = res
 
     details = {
         "operation": "Feature: Category Mapping",
         "column": column,
         "new_column": new_col_name,
         "mapped_categories_count": len(mapping),
+        "missing_preserved": int(is_na.sum()) if preserve_missing else 0,
     }
     return result_df, details
 
@@ -681,19 +782,32 @@ def op_feature_binary_indicator(
     df: pd.DataFrame,
     column: str,
     target_value: str,
-    new_col_name: str
+    new_col_name: str,
+    preserve_missing: bool = True
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Creates a binary indicator column (1 if column equals target_value, else 0).
+    Creates a binary indicator column.
+    By default, preserves missing inputs as np.nan rather than silently treating them as negative cases.
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
 
     result_df = df.copy()
-    target_clean = str(target_value).strip().lower()
-    match_mask = result_df[column].astype(str).str.strip().str.lower() == target_clean
+    s = result_df[column]
+    is_na = s.isna()
 
-    result_df[new_col_name] = match_mask.astype(int)
+    target_clean = str(target_value).strip().lower()
+    non_null_s = s[~is_na].astype(str).str.strip().str.lower()
+    match_mask = non_null_s == target_clean
+
+    if preserve_missing:
+        res = pd.Series(np.nan, index=df.index, dtype="float64")
+        res.loc[non_null_s.index] = match_mask.astype(float)
+    else:
+        res = pd.Series(0, index=df.index, dtype="int64")
+        res.loc[non_null_s.index] = match_mask.astype(int)
+
+    result_df[new_col_name] = res
 
     details = {
         "operation": "Feature: Binary Indicator",
@@ -701,6 +815,7 @@ def op_feature_binary_indicator(
         "target_value": target_value,
         "new_column": new_col_name,
         "positive_count": int(match_mask.sum()),
+        "missing_preserved": int(is_na.sum()) if preserve_missing else 0,
     }
     return result_df, details
 
@@ -714,30 +829,39 @@ def op_feature_one_hot(
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     One-hot encodes a categorical column up to max_categories.
+    Rows with missing values or categories outside top categories receive 0 across all dummy columns.
     """
     if column not in df.columns:
         raise ValueError(f"Column '{column}' not found.")
 
     result_df = df.copy()
-    series = result_df[column].dropna().astype(str).str.strip()
-    top_cats = series.value_counts().head(max_categories).index.tolist()
+    s = result_df[column]
+    is_na = s.isna()
+    non_null_s = s[~is_na].astype(str).str.strip()
+    top_cats = non_null_s.value_counts().head(max_categories).index.tolist()
 
     prefix_str = prefix if prefix else str(column)
     created_cols = []
 
-    # Filter to top categories or other
+    # Filter to top categories
     cats_to_encode = top_cats[1:] if drop_first else top_cats
     for cat in cats_to_encode:
-        col_name = f"{prefix_str}_{cat}".replace(" ", "_")
-        result_df[col_name] = (result_df[column].astype(str).str.strip() == cat).astype(int)
+        col_name = f"{prefix_str}_{cat}".replace(" ", "_").replace("/", "_").replace("-", "_")
+        col_series = pd.Series(0, index=df.index, dtype=int)
+        matches = non_null_s == cat
+        col_series.loc[matches[matches].index] = 1
+        result_df[col_name] = col_series
         created_cols.append(col_name)
 
+    unmatched_count = int(is_na.sum() + (~non_null_s.isin(cats_to_encode)).sum())
     details = {
         "operation": "Feature: One-Hot Encoding",
         "column": column,
         "drop_first": drop_first,
         "categories_encoded": len(cats_to_encode),
         "created_columns": created_cols,
+        "unmatched_count": unmatched_count,
+        "unmatched_representation": "Rows with missing values or categories outside top categories have 0 across all dummy columns.",
     }
     return result_df, details
 
@@ -971,6 +1095,8 @@ def compute_what_changed(
     """
     Computes a comprehensive quantitative and qualitative comparison
     between DataFrame states immediately before and after a transformation.
+    Accurately identifies changed cells in retained rows, representative removed records,
+    per-column missingness deltas, and operation status.
     """
     if step_info is None:
         step_info = {}
@@ -1005,13 +1131,58 @@ def compute_what_changed(
     dup_after = int(df_after.duplicated().sum()) if not df_after.empty else 0
     dup_delta = dup_after - dup_before
 
-    # Statistics comparison for affected or newly created columns
-    stats_comparison = {}
+    # 1. Identify removed rows and representative removed records
+    removed_indices = df_before.index.difference(df_after.index)
+    removed_rows_count = len(removed_indices)
+    representative_removed_records = (
+        df_before.loc[removed_indices].head(5).to_dict(orient="records")
+        if removed_rows_count > 0 else []
+    )
+
+    # 2. Identify changed cells in retained rows
+    common_indices = df_before.index.intersection(df_after.index)
+    changed_cells_count = 0
+    representative_changed_cells = []
+
+    for col in cols_retained:
+        s_bef = df_before.loc[common_indices, col]
+        s_aft = df_after.loc[common_indices, col]
+        # Avoid Categoricals can only be compared if categories are the same TypeError
+        if isinstance(s_bef.dtype, pd.CategoricalDtype) or isinstance(s_aft.dtype, pd.CategoricalDtype):
+            s_bef_comp = s_bef.astype(object)
+            s_aft_comp = s_aft.astype(object)
+        else:
+            s_bef_comp = s_bef
+            s_aft_comp = s_aft
+        both_na = s_bef_comp.isna() & s_aft_comp.isna()
+        diff_mask = (~both_na) & (s_bef_comp != s_aft_comp)
+        diff_cnt = int(diff_mask.sum())
+        if diff_cnt > 0:
+            changed_cells_count += diff_cnt
+            sample_diff_idx = diff_mask[diff_mask].index[:5]
+            for s_idx in sample_diff_idx:
+                if len(representative_changed_cells) < 10:
+                    representative_changed_cells.append({
+                        "row_index": s_idx,
+                        "column": col,
+                        "before": str(s_bef.loc[s_idx]),
+                        "after": str(s_aft.loc[s_idx]),
+                    })
+
+    # 3. Representative records with newly added features
+    representative_added_feature_records = []
+    if cols_added and not df_after.empty:
+        representative_added_feature_records = df_after[cols_added].head(5).to_dict(orient="records")
+
+    # 4. Statistics and missingness comparison for affected or newly created columns
     candidate_cols = cols_added + list(type_changes.keys())
     if affected_columns:
         candidate_cols.extend(affected_columns)
     if "column" in step_info and step_info["column"] in cols_retained:
         candidate_cols.append(step_info["column"])
+
+    stats_comparison = {}
+    missing_by_affected_col = {}
 
     for col in list(dict.fromkeys(candidate_cols)):
         col_stats = {}
@@ -1036,16 +1207,37 @@ def compute_what_changed(
         if col_stats:
             stats_comparison[col] = col_stats
 
+        # Missingness delta for affected column
+        cnt_b = int(m_mask_before[col].sum()) if col in df_before.columns else 0
+        pct_b = round(cnt_b / rows_before * 100, 2) if rows_before > 0 and col in df_before.columns else 0.0
+        cnt_a = int(m_mask_after[col].sum()) if col in df_after.columns else 0
+        pct_a = round(cnt_a / rows_after * 100, 2) if rows_after > 0 and col in df_after.columns else 0.0
+        missing_by_affected_col[col] = {
+            "before_count": cnt_b,
+            "before_pct": pct_b,
+            "after_count": cnt_a,
+            "after_pct": pct_a,
+            "delta_count": cnt_a - cnt_b,
+        }
+
     # Sample rows preview before & after
     sample_preview_before = df_before.head(3).to_dict(orient="records") if not df_before.empty else []
     sample_preview_after = df_after.head(3).to_dict(orient="records") if not df_after.empty else []
 
+    op_status = "preview" if step_info.get("is_preview") else "completed"
+
     return {
         "step_info": step_info,
+        "status": op_status,
         "rows_before": rows_before,
         "rows_after": rows_after,
         "row_delta": rows_delta,
         "rows_delta": rows_delta,
+        "rows_removed_count": removed_rows_count,
+        "representative_removed_records": representative_removed_records,
+        "changed_cells_count": changed_cells_count,
+        "representative_changed_cells": representative_changed_cells,
+        "representative_added_feature_records": representative_added_feature_records,
         "cols_before": len(cols_before),
         "cols_after": len(cols_after),
         "col_delta": len(cols_after) - len(cols_before),
@@ -1058,6 +1250,7 @@ def compute_what_changed(
         "missing_cells_before": missing_cells_before,
         "missing_cells_after": missing_cells_after,
         "missing_cells_delta": missing_cells_delta,
+        "missing_by_affected_col": missing_by_affected_col,
         "duplicates_before": dup_before,
         "duplicates_after": dup_after,
         "duplicates_delta": dup_delta,
@@ -1191,6 +1384,83 @@ class WorkingDatasetManager:
         self.last_comparison = None
         return self.working_df
 
+    def import_pipeline_json(
+        self,
+        json_str: str,
+        validate_only: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Validates and transactionally replays a JSON-serialized pipeline on the immutable source dataset.
+        If validation or execution fails at any step, rolls back to previous working copy.
+        """
+        try:
+            payload = json.loads(json_str)
+        except Exception as e:
+            return {"success": False, "error": f"Invalid JSON format: {str(e)}"}
+
+        steps = payload.get("pipeline_steps") or payload.get("steps")
+        if not isinstance(steps, list):
+            return {"success": False, "error": "Invalid pipeline format: 'pipeline_steps' must be a list."}
+
+        allowlisted_ops = {
+            "drop_missing_rows", "drop_columns", "impute_missing", "impute_numeric",
+            "impute_categorical_mode", "fill_constant", "replace_whitespace_with_nan",
+            "whitespace_to_nan", "remove_duplicates", "convert_type", "normalize_text",
+            "feature_arithmetic", "numeric_arithmetic", "feature_math", "math_transform",
+            "feature_binning", "numeric_binning", "feature_datetime_extract", "datetime_extract",
+            "feature_date_diff", "date_difference", "feature_category_map", "categorical_map",
+            "feature_binary_indicator", "binary_indicator", "feature_one_hot", "one_hot_encode",
+            "feature_text_length", "feature_word_count", "text_transform", "netflix_recipe"
+        }
+
+        # Step 1: Schema validation against allowlist
+        for idx, step in enumerate(steps, 1):
+            if not isinstance(step, dict):
+                return {"success": False, "error": f"Step {idx} must be a dictionary object."}
+            op_t = step.get("op_type") or step.get("operation_type")
+            if not op_t or op_t not in allowlisted_ops:
+                return {"success": False, "error": f"Step {idx} contains unsupported or unallowlisted operation '{op_t}'."}
+
+        # Step 2: Transactional dry run on a fresh copy of the raw source
+        test_df = self.source_df.copy()
+        planned_audit = []
+        for idx, step in enumerate(steps, 1):
+            op_t = step.get("op_type") or step.get("operation_type")
+            prms = step.get("params") or {k: v for k, v in step.items() if k not in ("op_type", "operation_type", "step_number", "details")}
+            try:
+                test_df, details = self._dispatch_operation(test_df, op_t, prms)
+                planned_audit.append({"step": idx, "operation": op_t, "details": details})
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Pipeline validation failed at step {idx} ({op_t}): {str(e)}",
+                    "failed_step_index": idx,
+                    "failed_operation": op_t
+                }
+
+        if validate_only:
+            return {
+                "success": True,
+                "valid": True,
+                "step_count": len(steps),
+                "planned_steps": steps,
+                "audit_preview": planned_audit
+            }
+
+        # Step 3: Apply transactionally to manager
+        self.reset_to_source()
+        for step in steps:
+            op_t = step.get("op_type") or step.get("operation_type")
+            prms = step.get("params") or {k: v for k, v in step.items() if k not in ("op_type", "operation_type", "step_number", "details")}
+            self.apply_operation(op_t, prms)
+
+        return {
+            "success": True,
+            "applied_steps": len(self.history),
+            "working_rows": len(self.working_df),
+            "working_cols": self.working_df.shape[1],
+        }
+
     def _dispatch_operation(
         self,
         df: pd.DataFrame,
@@ -1199,11 +1469,10 @@ class WorkingDatasetManager:
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """
         Dispatches operation calls to the allowlisted pure transformation registry.
+        Enforces collision protection and explicit key-presence checks for constants.
         """
-        # Column collision safety for generated features
-        new_col = params.get("new_col_name") or params.get("output_col")
-        if new_col and new_col in df.columns and not params.get("overwrite", False):
-            raise ValueError(f"Column '{new_col}' already exists in DataFrame. Specify overwrite=True to replace.")
+        intended_outputs = get_expected_output_columns(op_type, params, df)
+        check_column_collisions(df, intended_outputs, overwrite=params.get("overwrite", False))
 
         if op_type in ("drop_missing_rows",):
             return op_drop_missing_rows(
@@ -1216,7 +1485,7 @@ class WorkingDatasetManager:
             return op_drop_columns(df, columns=params.get("columns", []))
         elif op_type in ("impute_missing", "impute_numeric"):
             strat = params.get("strategy", "mean")
-            const_v = params.get("constant_value") or params.get("fill_value")
+            const_v = params["constant_value"] if "constant_value" in params else params.get("fill_value")
             return op_impute_missing(
                 df,
                 column=params.get("column", ""),
@@ -1232,7 +1501,7 @@ class WorkingDatasetManager:
                 treat_empty_as_missing=params.get("treat_empty_as_missing", True)
             )
         elif op_type == "fill_constant":
-            const_v = params.get("fill_value") or params.get("constant_value")
+            const_v = params["fill_value"] if "fill_value" in params else params.get("constant_value")
             return op_impute_missing(
                 df,
                 column=params.get("column", ""),
@@ -1297,7 +1566,8 @@ class WorkingDatasetManager:
                 bin_type=b_type,
                 bins=params.get("bins", 4),
                 labels=params.get("labels"),
-                new_col_name=out_c
+                new_col_name=out_c,
+                fill_missing_category=params.get("fill_missing_category")
             )
         elif op_type in ("feature_datetime_extract", "datetime_extract"):
             comp = params.get("components")
@@ -1335,7 +1605,8 @@ class WorkingDatasetManager:
                 column=params.get("column", ""),
                 mapping=params.get("mapping", {}),
                 default_val=def_v,
-                new_col_name=out_c
+                new_col_name=out_c,
+                preserve_missing=params.get("preserve_missing", True)
             )
         elif op_type in ("feature_binary_indicator", "binary_indicator"):
             out_c = params.get("new_col_name") or params.get("output_col", "is_target")
@@ -1343,7 +1614,8 @@ class WorkingDatasetManager:
                 df,
                 column=params.get("column", ""),
                 target_value=params.get("target_value", ""),
-                new_col_name=out_c
+                new_col_name=out_c,
+                preserve_missing=params.get("preserve_missing", True)
             )
         elif op_type in ("feature_one_hot", "one_hot_encode"):
             return op_feature_one_hot(
@@ -1421,6 +1693,106 @@ class WorkingDatasetManager:
         return json.dumps(export_data, indent=2, default=str)
 
 
+def get_expected_output_columns(op_type: str, params: Dict[str, Any], df: pd.DataFrame) -> List[str]:
+    """Computes all intended output column names for an operation before execution."""
+    out_cols = []
+    if op_type in (
+        "feature_arithmetic", "numeric_arithmetic",
+        "feature_math", "math_transform",
+        "feature_binning", "numeric_binning",
+        "feature_date_diff", "date_difference",
+        "feature_category_map", "categorical_map",
+        "feature_binary_indicator", "binary_indicator",
+        "feature_text_length", "feature_word_count"
+    ):
+        name = params.get("new_col_name") or params.get("output_col")
+        if name:
+            out_cols.append(str(name).strip())
+    elif op_type in ("feature_datetime_extract", "datetime_extract"):
+        comp = params.get("components")
+        if not comp and params.get("part"):
+            comp = [params["part"]]
+        elif not comp:
+            comp = ["year", "month"]
+        out_p = params.get("prefix") or params.get("output_col")
+        prefix_str = f"{out_p}_" if out_p else f"{params.get('column')}_"
+        for c in comp:
+            out_cols.append(f"{prefix_str}{c}")
+    elif op_type in ("feature_one_hot", "one_hot_encode"):
+        col = params.get("column", "")
+        if col in df.columns:
+            prefix_str = params.get("prefix") or str(col)
+            s = df[col].dropna().astype(str).str.strip()
+            top_cats = s.value_counts().head(params.get("max_categories", 20)).index.tolist()
+            cats_to_encode = top_cats[1:] if params.get("drop_first") else top_cats
+            for cat in cats_to_encode:
+                col_name = f"{prefix_str}_{cat}".replace(" ", "_").replace("/", "_").replace("-", "_")
+                out_cols.append(col_name)
+    elif op_type == "text_transform":
+        name = params.get("new_col_name") or params.get("output_col")
+        if name:
+            out_cols.append(str(name).strip())
+    elif op_type == "netflix_recipe":
+        rec_name = params.get("recipe_name") or params.get("recipe_key", "")
+        rec_map = {
+            "acquisition_lag": ["acquisition_lag"],
+            "content_origin_proxy": ["content_origin_proxy"],
+            "audience_tier": ["audience_tier"],
+            "primary_genre": ["primary_genre"],
+            "primary_country": ["primary_country"],
+            "metadata_soup": ["metadata_soup"],
+        }
+        if rec_name in rec_map:
+            out_cols.extend(rec_map[rec_name])
+    return out_cols
+
+
+def check_column_collisions(
+    df: pd.DataFrame,
+    intended_columns: List[str],
+    overwrite: bool = False
+) -> None:
+    """
+    Validates intended output columns against existing DataFrame columns
+    and among intended columns themselves.
+    """
+    if not intended_columns:
+        return
+
+    # Check for collisions among generated columns themselves
+    seen = set()
+    internal_duplicates = []
+    for c in intended_columns:
+        c_norm = c.strip().lower()
+        if c_norm in seen:
+            internal_duplicates.append(c)
+        seen.add(c_norm)
+
+    if internal_duplicates:
+        raise ValueError(
+            f"Generated columns contain duplicate or colliding names: {list(set(internal_duplicates))}."
+        )
+
+    if not overwrite:
+        existing_cols = list(df.columns)
+        collided = [c for c in intended_columns if c in existing_cols]
+
+        # Check normalized collision: e.g. "A B" and "A_B"
+        existing_normalized = {c.strip().lower().replace(" ", "_"): c for c in existing_cols}
+        for c in intended_columns:
+            c_norm = c.strip().lower().replace(" ", "_")
+            if c_norm in existing_normalized and c not in collided:
+                matched_existing = existing_normalized[c_norm]
+                if matched_existing != c:
+                    collided.append(f"{c} (collides with existing '{matched_existing}')")
+
+        if collided:
+            raise ValueError(
+                f"Column collision detected: output column(s) {collided} already exists in DataFrame. "
+                f"Specify overwrite=True to replace existing columns."
+            )
+
+
 def export_working_csv(df: pd.DataFrame) -> str:
     """Exports a DataFrame to CSV string without Pandas index."""
     buf = io.StringIO()
@@ -1484,3 +1856,39 @@ def apply_cleaning_operation(df: pd.DataFrame, config: Dict[str, Any]) -> Operat
         return OperationResult(df=res_df, success=True, details=details)
     except Exception as e:
         return OperationResult(df=df.copy(), success=False, error_message=str(e))
+
+
+def get_datalab_source_dataset() -> Tuple[Optional[pd.DataFrame], str, str]:
+    """
+    Safely retrieves the active raw source DataFrame, source identity, and source name
+    from Streamlit session state, or returns (None, '', '') if not in Streamlit context.
+    """
+    try:
+        import streamlit as st
+        src_df = st.session_state.get("datalab_source_data")
+        ident = st.session_state.get("datalab_source_identity", "")
+        name = st.session_state.get("datalab_source_name", "")
+        return src_df, ident, name
+    except Exception:
+        return None, "", ""
+
+
+def get_datalab_working_dataset() -> Tuple[Optional[pd.DataFrame], str, str, bool]:
+    """
+    Safely retrieves the active working copy DataFrame, source identity, source name,
+    and a boolean indicating whether cleaning transformations have been applied.
+    """
+    try:
+        import streamlit as st
+        manager: Optional[WorkingDatasetManager] = (
+            st.session_state.get("datalab_working_manager") or st.session_state.get("cleaning_manager")
+        )
+        if manager is not None and not manager.working_df.empty:
+            is_transformed = len(manager.history) > 0
+            return manager.working_df, manager.source_identity, manager.source_name, is_transformed
+        src_df = st.session_state.get("datalab_source_data")
+        ident = st.session_state.get("datalab_source_identity", "")
+        name = st.session_state.get("datalab_source_name", "")
+        return src_df, ident, name, False
+    except Exception:
+        return None, "", "", False

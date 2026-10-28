@@ -34,15 +34,21 @@ netflix-content-strategy-eda/
 ├── src/
 │   ├── __init__.py                 # Clean package exports
 │   ├── data_generator.py           # Robust dataset presence & path verification
-│   ├── data_cleaner.py             # Missing value audit, string parsing & hypothesis testing
-│   ├── data_explorer.py            # DataLab Phase 1 core profiling, schema, missingness & filtering engine
-│   ├── explorer_ui.py              # DataLab Phase 1 Streamlit UI components & visualizer
+│   ├── data_cleaner.py             # Legacy data cleaning & missing value audit
+│   ├── data_explorer.py            # Phase 1: Core profiling, schema, missingness & filtering engine
+│   ├── explorer_ui.py              # Phase 1: Streamlit UI components & visualizer
+│   ├── cleaning_lab.py             # Phase 2: Transformation engine, registry, What Changed?, JSON replay
+│   ├── cleaning_lab_ui.py          # Phase 2: Cleaning & Feature Engineering interactive UI
+│   ├── model_lab.py                # Phase 3: Predictive modeling engine & memory-safe recommender service
+│   ├── model_lab_ui.py             # Phase 3: Model Lab UI (Predictive Studio & Recommender Arena)
 │   ├── feature_engineer.py         # Licensing lag, audience tiering, multi-label exploders & metadata soup
-│   ├── model_trainer.py            # TF-IDF & Cosine Similarity NLP Content Recommender
+│   ├── model_trainer.py            # Legacy TF-IDF & Cosine Similarity NLP Content Recommender
 │   └── visualizations.py           # Plotly chart engine with bespoke corporate styling
 ├── tests/
 │   ├── __init__.py
-│   └── test_data_explorer.py       # Automated unit test suite (20 comprehensive tests)
+│   ├── test_data_explorer.py       # Automated unit tests for Phase 1 DataLab Explorer (27 tests)
+│   ├── test_cleaning_lab.py        # Automated unit tests for Phase 2 Clean & Transform (25 tests)
+│   └── test_model_lab.py           # Automated unit tests for Phase 3 Model Lab (19 tests)
 ├── notebooks/
 │   └── exploratory_analysis.ipynb  # Step-by-step narrative Jupyter notebook
 ├── app.py                          # Streamlit executive dashboard & DataLab workspace
@@ -241,46 +247,70 @@ Pure allowlisted functional transformations (strictly **NO** `eval()` or `exec()
 * **Datetime Decomposition & Delays:** Extract year, month, day, day of week, quarter, or calculate time differences between date fields in days.
 * **Categorical Mapping & Indicators:** User-defined category dictionary mapping, binary indicators (0/1), and manageable one-hot encoding.
 * **Text Features:** Character length and word count extraction.
-* **Column Collision Protection:** Creating features with existing names is prevented unless overwrite is explicitly requested.
+#### 5. Phase 2 Quality Repairs & Hardening (Part A)
+* **Explicit Boolean Conversion:** Robust parsing mapping `true`/`1`/`yes`/`y` to `True` and `false`/`0`/`no`/`n` to `False`. Rejects arbitrary non-empty strings and handles actual booleans, 0/1 numerics, and nullable `boolean` dtypes with clear invalid-count reporting.
+* **Preservation of Missing Strings:** String type conversion preserves null representations as nullable missing entries (`pd.NA`) rather than coercing them into literal `"nan"` or `"None"` strings.
+* **Constant-Fill Key-Presence:** Replaced truthiness checks with explicit key-presence checks (`"constant_value" in params`), allowing valid falsy constant imputations (`0`, `False`, `""`). Automatically adds new categories to `CategoricalDtype` before imputation to eliminate pandas assignment failures.
+* **Missing Value Preservation Across Feature Engineering:** Operations (`binning`, `category_map`, `binary_indicator`, `one_hot`, `text_length`, `word_count`, `datetime_extract`, `date_diff`) preserve `np.nan` and `pd.NA` without stringifying them into fake `"nan"` category labels.
+* **Strengthened Column Collision Protection:** Pre-calculates intended output column names before transformations, validates collisions across all generators (including normalized collisions like `"A B"` vs `"A_B"`), and rejects collisions unless deliberate `overwrite=True` is provided.
+* **Enhanced "What Changed?" Engine:** Quantifies the exact number of modified cells within retained rows, provides representative before-and-after values for altered cells, isolates removed records for user inspection, and details per-column missingness deltas.
+* **Transactional JSON Pipeline Replay:** Fully reproducible pipeline import/replay engine that dry-runs configurations against the selected dataset, validates against an allowlisted registry, and applies transformations transactionally with automatic rollback on error.
+* **Inclusive Date-Filter Semantics:** Phase 1 date filters enforce an inclusive start date and an exclusive next-day midnight boundary (`end_date + 1 day`), correctly retaining timestamps throughout the selected end date without timezone mismatch errors.
+* **Source-State Contract:** Internal helpers (`get_datalab_source_dataset()`, `get_datalab_working_dataset()`) ensure downstream workspaces can access either the immutable source or the active working copy.
 
-#### 5. Integrated Netflix Strategic Feature Recipes
-Pre-conditioned business logic recipes available when source schema matches:
-* `acquisition_lag`: Temporal lag between release year and platform addition.
-* `content_origin_proxy`: Strategic classification (`Likely Original / Day-and-Date`, `Recent Release`, `Catalog Acquisition`).
-* `audience_tier`: Grouping 10+ ratings into *Kids*, *Family / Teens*, *Mature / Adults*.
-* `primary_genre` & `primary_country`: Leading item extraction from multi-label strings.
-* `metadata_soup`: NLP token concatenation for content recommender vectorization.
+---
 
-#### 6. "What Changed?" Comparison Engine & Audit Ledger
-* Every applied or previewed operation computes real before-and-after deltas:
-  - Rows added / removed.
-  - Columns added / removed.
-  - Data types altered.
-  - Missing cells delta.
-  - Duplicates delta.
-  - Summary statistics before vs. after for affected features.
-* **Transformation Audit Ledger:** Visible log tracking step number, operation, parameters, and outcomes.
-* **Deterministic Undo & Reset:** Undo the last applied operation or reset all transformations back to the raw source snapshot by replaying the serializable configuration plan.
+### 🤖 DataLab Phase 3: Model Lab — ML Experiment Arena (Part B)
 
-#### 7. Export Hub
-* **Transformed Dataset (CSV):** Download complete working copy without internal index columns.
-* **Cleaning & Feature Engineering Audit Report (Markdown/CSV):** Comprehensive report with session disclosure, original vs. final dimensions, and step-by-step audit details.
-* **Reproducible Pipeline Config (JSON):** Serialized configuration plan that can be replayed on compatible datasets.
+The Model Lab connects data exploration and feature engineering into an empirical machine learning studio with two primary modes:
 
-### 7. Running Automated Tests
+#### Mode 1: Predictive Modeling Studio
+* **Dataset Selection:** Train on the original raw source dataset or the active Phase 2 transformed working copy, with automatic stale-model detection when datasets or features change.
+* **Task Detection & Target Validation:** Automatically suggests Classification or Regression based on target cardinality and data types. Handles binary and multiclass classification, target missingness exclusion (with transparent reporting), and screens out long unstructured free-text columns from tabular estimators with explanatory guidance.
+* **Leakage-Free Preprocessing Pipeline:** Uses Scikit-Learn `ColumnTransformer` and `Pipeline` fitted **strictly on the training split** ($X_{train}$):
+  - Numeric columns: `SimpleImputer(strategy="median")` + `StandardScaler()`.
+  - Categorical columns: `SimpleImputer(strategy="most_frequent")` + `OneHotEncoder(handle_unknown="ignore")`.
+* **Candidate Model Suite:**
+  - *Classification:* Baseline `DummyClassifier(strategy="most_frequent")`, `LogisticRegression`, `DecisionTreeClassifier`, `RandomForestClassifier`.
+  - *Regression:* Baseline `DummyRegressor(strategy="mean")`, `Ridge` / Linear Regression, `DecisionTreeRegressor`, `RandomForestRegressor`.
+* **Empirical Evaluation Metrics:**
+  - *Classification:* Accuracy, Balanced Accuracy, Macro F1, Weighted F1, Precision, Recall, interactive Plotly Confusion Matrix, Per-Class Classification Report, and ROC-AUC (when probabilities are supported).
+  - *Regression:* MAE, RMSE, $R^2$, Residual Distribution plot, and Predicted vs. Actual scatter view.
+* **Cross-Validation:** Optional $K$-fold / Stratified $K$-fold cross-validation executed solely on the training partition with preprocessing fitted inside each fold.
+* **Feature Importance & Interpretability:** Extracts tree-based Mean Decrease in Impurity (MDI) importances and linear regression coefficients mapped back to readable feature names (including one-hot categories).
+* **Model Error Analysis:** Test-set error inspection table showing top misclassified instances with prediction confidence (classification) or largest absolute residuals (regression).
+
+#### Mode 2: Recommender Experiment Arena
+* **Memory-Safe Sparse Cosine Similarity:** Refactored from dense $N \times N$ matrix allocation to on-demand query dot product (`cosine_similarity(query_vec, catalog_matrix)`). Eliminates hundreds of megabytes of redundant memory while maintaining 100% backward compatibility with legacy recommender interfaces.
+* **Multi-Field TF-IDF & Weighting:** Users can select individual metadata fields (`genres`, `director`, `cast`, `description`, etc.), configure hyperparameters (`max_features`, n-gram ranges, sublinear TF, stop words), and apply granular field weights (including complete field ablation at weight `0.0`).
+* **A/B Comparison on Same Query:** Run two distinct recommender configurations against the identical query title to visualize:
+  - Jaccard Top-$K$ Overlap %.
+  - Shared recommendations, entering items, and leaving items.
+  - Per-item rank shifts and similarity score changes.
+* **Honest Relevance Feedback (No Fabricated Ground Truth):** In-session interactive relevance feedback (thumbs up / thumbs down). Computes judged **Precision@K** and **NDCG@K** based solely on user-evaluated items, explicitly disclosing judged vs. unjudged counts without making false assumptions about unrated catalog items.
+
+#### Subtab 3: Saved Experiment Tracker & Export Hub
+* **Session Run Logging:** Automatically logs experiment configurations, hyperparameters, dataset identities, execution runtimes, and metrics.
+* **Export Hub:** Download experiment scorecards as CSV or export model/recommender configurations as validated JSON.
+
+---
+
+### 🧪 Running Automated Tests
 Run the comprehensive automated unit test suite from the project root:
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
-All 45 automated unit tests validate:
-- Dataset identity SHA-256 collision prevention and state invalidation.
-- Deterministic systematic linspace sampling across 501, 750, 999, 1,000, and 10,000 row datasets.
-- Unified missingness semantics and non-removal of literal strings.
-- High-cardinality categorical search filtering (>50 distinct categories).
-- Inclusive date range boundary filtering.
-- Imputation (mean, median, mode, constant), row/column dropping, deduplication, and type parsing.
-- Feature engineering (arithmetic, div/0 safety, log, binning, datetime, one-hot, word count).
-- Source DataFrame immutability, deterministic undo/reset replay, and exports.
+**All 71 automated tests pass successfully**, covering:
+1. `tests/test_data_explorer.py` (27 tests): Dataset SHA-256 identity, linspace sampling across 501–10,000 rows, unified missingness semantics, inclusive date bounds, timezone awareness, pagination, CSV exports.
+2. `tests/test_cleaning_lab.py` (25 tests): Explicit boolean mapping, null preservation in string conversion, falsy constant fills (`0`, `False`, `""`), categorical category expansion, feature engineering missing preservation, column collision prevention, What Changed modified/removed tracking, transactional JSON pipeline replay and error rollback.
+3. `tests/test_model_lab.py` (19 tests): Heuristic task detection, target-missing row dropping, leakage-free preprocessing pipeline fitting on $X_{train}$, classification candidate models & ROC-AUC, regression candidate models & residuals, cross-validation, feature importance extraction, error analysis, memory-safe sparse recommender similarity, A/B Jaccard comparisons, judged NDCG/Precision relevance feedback, and JSON configuration exports.
+
+---
+
+### ⚡ Performance Constraints & Limitations
+- **Tabular Modeling:** Focuses on structured numeric and categorical features; long free-text columns (average length > 60 chars) are screened out of tabular estimators and directed toward the Recommender Experiment Arena.
+- **Recommender Evaluation:** Real user preference ground truth is not artificially manufactured; ranking metrics (Precision@K, NDCG@K) require user relevance judgments and explicitly display unjudged item counts.
+- **In-Memory Scalability:** Designed for interactive single-node exploration and modeling up to ~100,000 records. Estimator training utilizes Scikit-Learn with bounded tree depths and tree counts to maintain sub-second interactive response times.
 
 ---
 
@@ -290,31 +320,37 @@ All 45 automated unit tests validate:
 Interactive dataset exploration workspace: schema profiling, missingness visualizers, column distributions, multi-condition filtering, date filtering, high-cardinality search, record inspection, and CSV exports.
 
 ### Tab 1: 🧹 DataLab: Clean & Transform
-First-class interactive data cleaning and feature engineering workspace: automated quality audit, missingness handling, deduplication, text normalization, allowlisted feature engineering playground, strategic Netflix recipes, What Changed? comparison card, step audit ledger, undo/reset state management, and export hub.
+First-class interactive data cleaning and feature engineering workspace: automated quality audit, missingness handling, deduplication, text normalization, allowlisted feature engineering playground, strategic Netflix recipes, What Changed? comparison card, step audit ledger, undo/reset state management, JSON pipeline import/replay, and export hub.
 
-### Tab 2: 📈 Executive Strategy & Growth
+### Tab 2: 🤖 DataLab: Model Lab
+Empirical ML Experiment Arena:
+- **Mode 1 — Predictive Modeling Studio:** Supervised classification and regression on raw source or transformed working copy, baseline comparisons, cross-validation, Plotly confusion matrix / residual distribution, feature importances, and error inspection.
+- **Mode 2 — Recommender Experiment Arena:** Multi-field TF-IDF with field weighting and ablation, memory-safe on-demand sparse ranking, A/B query testing with Jaccard overlap, and user relevance feedback metrics.
+- **Experiment Tracker:** In-session run comparison, CSV export, and JSON configuration serialization.
+
+### Tab 3: 📈 Executive Strategy & Growth
 - **Catalog Expansion Velocity:** Tracks yearly title additions split by Movies vs. TV Shows, revealing the post-2016 inflection point.
 - **The Studio Defense Pivot:** 100% normalized view showing the transition from studio back-catalogs to original/same-year releases.
 - **Annual Ingestion Ledger:** Quantitative summary table of volume, TV share %, and Originals proxy %.
 
-### Tab 3: 🌍 Global Footprint & Ratings
+### Tab 4: 🌍 Global Footprint & Ratings
 - **Production Powerhouses:** Top 14 producing nations segmented by audience maturity tiers (*Kids*, *Family / Teens*, *Mature / Adults*).
 - **International Content Strategy Matrix:** Highlights localization differences between Western markets and emerging high-growth regions like India and South Korea.
 
-### Tab 4: 🎭 Genre & Format Mechanics
+### Tab 5: 🎭 Genre & Format Mechanics
 - **Runtime Optimization:** Movie runtime distribution showing the median and the 90–110 min sweet spot.
 - **The Season 2 Cliff:** TV season attrition rates illustrating the financial dynamics behind series cancellations.
 - **Genre Co-Occurrence Heatmap:** 2D matrix identifying which content categories are most frequently packaged together.
 
-### Tab 5: 🛠️ EDA Data Hygiene & Engineering Log
+### Tab 6: 🛠️ EDA Data Hygiene & Engineering Log
 - **Hygiene KPI Scorecard:** Initial row count, final cleaned count, and dropped anomaly rate (<1.5%).
 - **Missing Director Hypothesis Deep Dive:** Interactive visual and statistical proof explaining episodic TV director attribution.
 - **Missing Value Audit Ledger:** Comprehensive before-and-after table tracking null counts and percentages across all features.
 - **Cleaned Data Explorer & CSV Export:** Interactive table with one-click export for downstream modeling.
 
-### Tab 6: 🤖 AI Recommender Engine
+### Tab 7: 🎯 Legacy Content Recommendation Engine
 - **NLP Metadata Soup Construction:** Blends lowercased titles, sanitized director/cast name tokens (`Tom Hanks` -> `tomhanks`), genre categories, and descriptions.
-- **TF-IDF & Cosine Similarity Matrix:** Scikit-Learn vectorizer (5,000 max features, English stop words) generating high-dimensional semantic embeddings.
+- **On-Demand Memory-Safe Sparse Similarity:** Optimized Scikit-Learn vectorizer generating semantic embeddings without full $N \times N$ matrix memory overhead.
 - **Interactive Title Search & Slicer Integration:** Instant query lookup across the active catalog slice with dedicated target spotlight.
 - **Bespoke Visual Recommendation Cards:** High-end glassmorphism containers showcasing similarity match %, format, rating, metadata tokens, and narrative synopses.
 
@@ -324,9 +360,8 @@ First-class interactive data cleaning and feature engineering workspace: automat
 
 * **Language:** Python 3.10+
 * **Data Processing & Manipulation:** `pandas>=2.0.0`, `numpy>=1.24.0`
-* **Machine Learning & NLP:** `scikit-learn>=1.3.0` (TF-IDF Vectorizer, Cosine Similarity)
+* **Machine Learning & NLP:** `scikit-learn>=1.3.0` (ColumnTransformer, Pipelines, Estimators, TF-IDF Vectorizer, Cosine Similarity)
 * **Interactive Visualization:** `plotly>=5.18.0`
 * **Web Application Framework:** `streamlit>=1.30.0`
 * **Statistical Modeling & Distribution:** `scipy>=1.11.0`
-
 ---
