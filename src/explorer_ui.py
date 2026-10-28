@@ -24,6 +24,7 @@ import plotly.graph_objects as go
 from src.data_explorer import (
     resolve_builtin_netflix_path,
     load_csv_from_file_or_bytes,
+    compute_dataset_identity,
     get_missing_mask,
     classify_column_type,
     compute_overview_metrics,
@@ -89,6 +90,32 @@ def _apply_plotly_style(fig: go.Figure, title: str = "", height: int = 400) -> g
     return fig
 
 
+def reset_explorer_filters_callback() -> None:
+    """
+    Reliable callback to clear all active filters and associated widget states.
+    Deletes widget keys from session_state so they reinitialize to clean defaults.
+    """
+    st.session_state["explorer_filters"] = {}
+    st.session_state["explorer_page_num"] = 1
+    keys_to_clear = [
+        k for k in list(st.session_state.keys())
+        if k.startswith("filter_")
+        or k.startswith("rng_slider_")
+        or k.startswith("radio_missing_")
+        or k.startswith("ms_cat_")
+        or k.startswith("txt_match_")
+        or k.startswith("cat_search_")
+        or k.startswith("dt_picker_")
+        or k.startswith("cb_use_temp_dt_")
+        or k.startswith("dt_col_")
+        or k == "input_global_search"
+        or k == "schema_col_search"
+    ]
+    for k in keys_to_clear:
+        if k in st.session_state:
+            del st.session_state[k]
+
+
 def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     """
     Main entry point for the DataLab Interactive Dataset Explorer tab.
@@ -146,11 +173,13 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 resolved_path = resolve_builtin_netflix_path()
                 active_df, _ = load_csv_from_file_or_bytes(resolved_path, filename="netflix_titles.csv")
             dataset_name = "Built-in Netflix Catalog"
+            current_sig = compute_dataset_identity(active_df, source_type="builtin", resolved_path=resolved_path)
             source_metadata = {
                 "Source Type": "Local Repository Dataset",
                 "Resolved Path": resolved_path,
                 "Original Rows": len(active_df),
                 "Original Columns": active_df.shape[1],
+                "content_hash": current_sig,
             }
         except Exception as e:
             st.error(f"Failed to load built-in Netflix dataset: {str(e)}")
@@ -172,6 +201,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             parsed_df, meta = load_csv_from_file_or_bytes(file_bytes, filename=uploaded_file.name)
             active_df = parsed_df
             dataset_name = uploaded_file.name
+            current_sig = compute_dataset_identity(active_df, source_type="uploaded", file_bytes=file_bytes, filename=uploaded_file.name)
             source_metadata = {
                 "Source Type": "Uploaded CSV File",
                 "Filename": meta["filename"],
@@ -179,6 +209,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 "File Size": format_bytes(meta["file_size_bytes"]),
                 "Original Rows": meta["row_count"],
                 "Original Columns": meta["column_count"],
+                "content_hash": current_sig,
             }
             if meta["warnings"]:
                 for warn in meta["warnings"]:
@@ -192,15 +223,21 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         st.warning("The selected dataset is empty (0 records).")
         return
 
-    # Check and initialize session state for dataset switching
-    current_sig = f"{dataset_name}_{len(active_df)}_{active_df.shape[1]}"
+    # Check and initialize session state for dataset switching using cryptographic identity
     if st.session_state.get("explorer_active_sig") != current_sig:
         st.session_state["explorer_active_sig"] = current_sig
-        st.session_state["explorer_filters"] = {}
-        st.session_state["explorer_page_num"] = 1
+        reset_explorer_filters_callback()
         st.session_state["explorer_page_size"] = 25
         st.session_state["explorer_sort_col"] = None
         st.session_state["explorer_sort_asc"] = True
+        if "datalab_working_manager" in st.session_state:
+            del st.session_state["datalab_working_manager"]
+
+    # Shared DataLab state for Phase 2 (Clean & Transform)
+    st.session_state["datalab_source_data"] = active_df
+    st.session_state["datalab_source_identity"] = current_sig
+    st.session_state["datalab_source_name"] = dataset_name
+    st.session_state["datalab_source_meta"] = source_metadata
 
     # ------------------------------------------------------------------
     # Missing-Value Rule Toggle
@@ -239,7 +276,6 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     k1, k2, k3, k4, k5, k6 = st.columns(6)
 
     with k1:
-        sub_txt = f"{round(filtered_rows / total_rows * 100, 1)}% of total" if is_filtered else "Total records in dataset"
         st.markdown(f"""
             <div class="metric-card" style="padding: 14px 16px;">
                 <div class="metric-title">Row Count</div>
@@ -264,10 +300,10 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     with k3:
         st.markdown(f"""
             <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Duplicate Rows</div>
+                <div class="metric-title">Duplicate Rows (Full)</div>
                 <div class="metric-value" style="font-size: 1.8rem;">{overview['duplicate_rows']:,}</div>
                 <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    {overview['duplicate_rows_pct']}% of catalog
+                    {overview['duplicate_rows_pct']}% of full dataset
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -275,10 +311,10 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     with k4:
         st.markdown(f"""
             <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Missing Cells</div>
+                <div class="metric-title">Missing Cells (Full)</div>
                 <div class="metric-value" style="font-size: 1.8rem;">{overview['total_missing_cells']:,}</div>
                 <div class="metric-sub" style="font-size: 0.78rem;">
-                    {overview['missing_cells_pct']}% of all cells
+                    {overview['missing_cells_pct']}% of full dataset
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -286,10 +322,10 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     with k5:
         st.markdown(f"""
             <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Complete Rows</div>
+                <div class="metric-title">Complete Rows (Full)</div>
                 <div class="metric-value" style="font-size: 1.8rem;">{overview['complete_rows']:,}</div>
                 <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    {overview['complete_rows_pct']}% 0-null rows
+                    {overview['complete_rows_pct']}% zero-null records
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -297,13 +333,19 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     with k6:
         st.markdown(f"""
             <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Memory Size</div>
+                <div class="metric-title">Memory Size (Full)</div>
                 <div class="metric-value" style="font-size: 1.8rem;">{overview['memory_usage_str']}</div>
                 <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    Deep DataFrame memory
+                    Source catalog memory
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+    if is_filtered:
+        st.info(
+            f"ℹ️ **Filtered View Active:** Row Count reflects the active filtered view (**{filtered_rows:,}** of {total_rows:,} records), "
+            f"while baseline quality indicators (duplicates, missing cells, memory) represent the complete source dataset (**{total_rows:,}** records)."
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -686,10 +728,13 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 st.success(f"✅ **No Filters Active:** Showing all **{total_rows:,}** records.")
 
         with reset_col:
-            if st.button("🔄 Reset All Filters", key="btn_reset_filters", use_container_width=True):
-                st.session_state["explorer_filters"] = {}
-                st.session_state["explorer_page_num"] = 1
-                st.rerun()
+            st.button(
+                "🔄 Reset All Filters",
+                key="btn_reset_filters",
+                on_click=reset_explorer_filters_callback,
+                use_container_width=True,
+                help="Clears all active filters, restores full original dataset view, and resets pagination to page 1."
+            )
 
         st.markdown("---")
 
@@ -705,9 +750,9 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             st.session_state["explorer_filters"] = current_filters
             st.session_state["explorer_page_num"] = 1
 
-        # Granular Filters in Expandable Columns
-        with st.expander("⚙️ Advanced Column Filters (Numeric, Categorical, Text, Missingness)", expanded=True):
-            f_col1, f_col2 = st.columns(2)
+        # Granular Filters in Expandable Columns (Numeric, Categorical, Datetime, Missingness)
+        with st.expander("⚙️ Advanced Column Filters (Numeric, Categorical, Datetime, Missingness)", expanded=True):
+            f_col1, f_col2, f_col3 = st.columns(3)
 
             # Left Column: Numeric Range & Missingness
             with f_col1:
@@ -762,7 +807,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     else:
                         current_filters["missing_filters"].pop(missing_col, None)
 
-            # Right Column: Categorical & Text Substring
+            # Middle Column: Categorical & Text Substring
             with f_col2:
                 st.markdown("**Categorical Filter**")
                 cat_cols = [c for c in active_df.columns if classify_column_type(active_df[c]) in ("Categorical/Text", "Boolean")]
@@ -773,16 +818,32 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         key="filter_cat_col_select"
                     )
                     if selected_cat_col != "None":
-                        cat_opts = sorted(active_df[selected_cat_col].dropna().astype(str).str.strip().unique().tolist())
-                        if len(cat_opts) > 50:
-                            st.caption(f"Showing top 50 of {len(cat_opts):,} distinct categories.")
-                            cat_opts = cat_opts[:50]
+                        all_cat_vals = sorted(active_df[selected_cat_col].dropna().astype(str).str.strip().unique().tolist())
+                        total_cats = len(all_cat_vals)
+                        if total_cats > 50:
+                            st.caption(f"ℹ️ High cardinality: **{total_cats:,}** distinct values.")
+                            cat_search = st.text_input(
+                                f"Search values in '{selected_cat_col}':",
+                                key=f"cat_search_{selected_cat_col}",
+                                placeholder="Type to filter categories..."
+                            )
+                            if cat_search.strip():
+                                visible_cats = [v for v in all_cat_vals if cat_search.strip().lower() in v.lower()]
+                                st.caption(f"Showing {len(visible_cats):,} of {total_cats:,} matching values.")
+                            else:
+                                visible_cats = all_cat_vals[:50]
+                                st.caption(f"Showing first 50 values. Use the search input above to access any category.")
+                        else:
+                            visible_cats = all_cat_vals
+
                         current_cat_sel = current_filters.get("categorical_selections", {}).get(selected_cat_col, [])
+                        options_union = sorted(list(set(visible_cats + current_cat_sel)))
                         new_cat_sel = st.multiselect(
                             f"Select values for '{selected_cat_col}':",
-                            options=cat_opts,
-                            default=current_cat_sel,
-                            key=f"ms_cat_{selected_cat_col}"
+                            options=options_union,
+                            default=[c for c in current_cat_sel if c in options_union],
+                            key=f"ms_cat_{selected_cat_col}",
+                            help="Filter rows matching any selected category (exact case-sensitive match)."
                         )
                         if "categorical_selections" not in current_filters:
                             current_filters["categorical_selections"] = {}
@@ -810,6 +871,93 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                             current_filters["text_searches"][selected_text_col] = txt_val.strip()
                         else:
                             current_filters["text_searches"].pop(selected_text_col, None)
+
+            # Right Column: Datetime Range Filter
+            with f_col3:
+                st.markdown("**Date Range Filter**")
+                date_candidates = ["None"]
+                dt_meta = {}
+                for c in active_df.columns:
+                    ctype = classify_column_type(active_df[c])
+                    if ctype == "Datetime":
+                        date_candidates.append(c)
+                        dt_meta[c] = {"is_native": True}
+                    elif ctype in ("Categorical/Text", "Other"):
+                        pr = preview_datetime_parsing(active_df[c])
+                        if pr["success_rate_pct"] >= 50.0 and pr["parsed_count"] > 0:
+                            date_candidates.append(c)
+                            dt_meta[c] = {"is_native": False, "preview": pr}
+
+                if len(date_candidates) > 1:
+                    selected_dt_col = st.selectbox(
+                        "Select column for date filter:",
+                        options=date_candidates,
+                        key="filter_date_col_select"
+                    )
+                    if selected_dt_col != "None":
+                        info = dt_meta[selected_dt_col]
+                        can_filter = False
+                        parsed_s = None
+
+                        if not info["is_native"]:
+                            pr = info["preview"]
+                            st.caption(
+                                f"ℹ️ String dates: **{pr['success_rate_pct']}%** parseable "
+                                f"({pr['parsed_count']:,} valid, {pr['failed_count']:,} failed)."
+                            )
+                            use_temp = st.checkbox(
+                                f"Use temporary parsed datetime for '{selected_dt_col}'",
+                                value=selected_dt_col in current_filters.get("date_ranges", {}),
+                                key=f"cb_use_temp_dt_{selected_dt_col}",
+                                help="Applies date filtering using an in-memory datetime representation without changing source data types."
+                            )
+                            if use_temp:
+                                can_filter = True
+                                try:
+                                    parsed_s = pd.to_datetime(active_df[selected_dt_col], errors="coerce", format="mixed")
+                                except (ValueError, TypeError):
+                                    parsed_s = pd.to_datetime(active_df[selected_dt_col], errors="coerce")
+                        else:
+                            can_filter = True
+                            parsed_s = pd.to_datetime(active_df[selected_dt_col], errors="coerce")
+
+                        if can_filter and parsed_s is not None:
+                            valid_dates = parsed_s.dropna()
+                            if valid_dates.empty:
+                                st.warning(f"No valid dates found in '{selected_dt_col}'.")
+                            else:
+                                min_dt = valid_dates.min().date()
+                                max_dt = valid_dates.max().date()
+                                if min_dt == max_dt:
+                                    st.caption(f"All records have date: {min_dt}")
+                                else:
+                                    curr_d_range = current_filters.get("date_ranges", {}).get(selected_dt_col, (min_dt, max_dt))
+                                    try:
+                                        d_val = (
+                                            curr_d_range[0] if hasattr(curr_d_range[0], "year") else pd.to_datetime(curr_d_range[0]).date(),
+                                            curr_d_range[1] if hasattr(curr_d_range[1], "year") else pd.to_datetime(curr_d_range[1]).date(),
+                                        )
+                                    except Exception:
+                                        d_val = (min_dt, max_dt)
+
+                                    date_choice = st.date_input(
+                                        f"Inclusive dates for '{selected_dt_col}':",
+                                        value=d_val,
+                                        min_value=min_dt,
+                                        max_value=max_dt,
+                                        key=f"dt_picker_{selected_dt_col}",
+                                        help="Rows where the date falls within [Start Date 00:00:00, End Date 23:59:59] (inclusive)."
+                                    )
+                                    if isinstance(date_choice, (tuple, list)) and len(date_choice) == 2:
+                                        if "date_ranges" not in current_filters:
+                                            current_filters["date_ranges"] = {}
+                                        current_filters["date_ranges"][selected_dt_col] = (str(date_choice[0]), str(date_choice[1]))
+                                    elif selected_dt_col in current_filters.get("date_ranges", {}):
+                                        del current_filters["date_ranges"][selected_dt_col]
+                    else:
+                        current_filters.pop("date_ranges", None)
+                else:
+                    st.caption("No datetime or parseable date columns found in active dataset.")
 
         st.session_state["explorer_filters"] = current_filters
 
@@ -846,9 +994,17 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             with c_ctrl3:
                 page_size = st.selectbox("Page Size:", options=[25, 50, 100], index=0, key="table_page_size")
 
-            # Pagination computation
+            # Pagination computation with safe clamping
             current_page = st.session_state.get("explorer_page_num", 1)
             actual_sort_col = sort_col if sort_col != "None" else None
+
+            calc_total_pages = max(1, (len(filtered_df) + page_size - 1) // page_size) if not filtered_df.empty else 1
+            if current_page > calc_total_pages:
+                current_page = calc_total_pages
+                st.session_state["explorer_page_num"] = current_page
+            elif current_page < 1:
+                current_page = 1
+                st.session_state["explorer_page_num"] = current_page
 
             page_slice, total_pages, total_recs = paginate_dataframe(
                 filtered_df,

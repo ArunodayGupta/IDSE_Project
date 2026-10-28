@@ -18,6 +18,7 @@ from .visualizations import (
 
 from .data_explorer import (
     resolve_builtin_netflix_path,
+    compute_dataset_identity,
     load_csv_from_file_or_bytes,
     get_missing_mask,
     classify_column_type,
@@ -35,6 +36,15 @@ from .data_explorer import (
     export_profile_csv,
 )
 from .explorer_ui import render_explorer_tab
+from .cleaning_lab import (
+    WorkingDatasetManager,
+    generate_data_quality_audit,
+    compute_what_changed,
+    apply_cleaning_operation,
+    export_working_csv,
+    export_cleaning_report,
+)
+from .cleaning_lab_ui import render_cleaning_lab_tab
 
 __all__ = [
     "ensure_data_exists",
@@ -50,6 +60,7 @@ __all__ = [
     "plot_duration_distributions",
     "plot_missing_directors_comparison",
     "resolve_builtin_netflix_path",
+    "compute_dataset_identity",
     "load_csv_from_file_or_bytes",
     "get_missing_mask",
     "classify_column_type",
@@ -66,4 +77,11 @@ __all__ = [
     "export_filtered_csv",
     "export_profile_csv",
     "render_explorer_tab",
+    "WorkingDatasetManager",
+    "generate_data_quality_audit",
+    "compute_what_changed",
+    "apply_cleaning_operation",
+    "export_working_csv",
+    "export_cleaning_report",
+    "render_cleaning_lab_tab",
 ]

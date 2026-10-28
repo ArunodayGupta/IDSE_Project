@@ -18,6 +18,7 @@ from src.data_cleaner import clean_netflix_data
 from src.feature_engineer import engineer_features, explode_column
 from src.model_trainer import ContentRecommender
 from src.explorer_ui import render_explorer_tab
+from src.cleaning_lab_ui import render_cleaning_lab_tab
 from src.visualizations import (
     plot_catalog_growth,
     plot_acquisition_lag_trend,
@@ -488,8 +489,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------------------------
 # Interactive Tabbed Structure
 # ---------------------------------------------------------
-tab_explore, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab_explore, tab_clean, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🔬 DataLab: Explore Dataset",
+    "🧹 DataLab: Clean & Transform",
     "📈 Executive Strategy & Growth",
     "🌍 Global Distribution & Ratings",
     "🎭 Genre & Format Analysis",
@@ -503,6 +505,13 @@ tab_explore, tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # =========================================================
 with tab_explore:
     render_explorer_tab(netflix_raw_df=raw_df)
+
+
+# =========================================================
+# TAB: DATALAB CLEAN & TRANSFORM LAB (PHASE 2)
+# =========================================================
+with tab_clean:
+    render_cleaning_lab_tab(netflix_raw_df=raw_df)
 
 
 # =========================================================

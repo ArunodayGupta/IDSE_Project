@@ -207,47 +207,112 @@ When a dataset is loaded, dynamic KPI cards present actual calculations:
 * **Filtered Data Export (CSV):** Downloads all currently filtered records (not just the visible page) with original column order, excluding internal helper columns (`index=False`).
 * **Data Profile Report Export (CSV):** Downloads the complete column schema data dictionary.
 
-### 6. Intentional Performance Limits
-To keep the application responsive across large catalogs:
-* The Missingness Sparsity Matrix systematically samples up to 500 rows evenly spaced across the dataset when total rows exceed 500.
-* Categorical multiselect dropdowns cap option lists at the top 50 distinct categories to prevent browser latency on high-cardinality columns.
-* Plotly visualizations leverage native container sizing and WebGL acceleration where available.
+### 6. Phase 2: 🧹 DataLab: Clean & Transform Lab
+Phase 2 transforms DataLab into an interactive data preparation, cleaning, and feature engineering lab. It bridges raw exploratory inspection with downstream modeling by letting users clean data and engineer features step-by-step.
+
+#### 1. Seamless Shared Dataset State
+* The source dataset selected in Phase 1 (Built-in Netflix or Uploaded CSV) is automatically shared with Phase 2 without requiring re-uploading.
+* Cryptographic SHA-256 source identity invalidation ensures that switching sources immediately refreshes the cleaning workspace and resets stale transformations.
+* The original raw source remains **completely immutable**; all cleaning actions operate on an isolated working DataFrame.
+
+#### 2. Initial Data Quality Audit
+* Diagnostic summary displaying row/column dimensions, total missing cells & percentage, duplicate count, constant columns, 100% missing columns, blank/whitespace-only text columns, and parseable date candidates.
+
+#### 3. Available Cleaning Operations
+* **Missing-Value Strategies:**
+  - Drop rows missing values across all or selected columns (`any` / `all`).
+  - Drop unneeded or high-null columns.
+  - Impute numeric columns with **Mean** or **Median** (with zero usable number safety).
+  - Impute categorical columns with **Mode** (most frequent valid category).
+  - Fill missing cells with a user-provided **Constant Value**.
+  - Convert blank or whitespace-only text cells to proper `np.nan` missing values.
+* **Duplicate Management:**
+  - Choose duplicate definitions across all columns or selected subsets.
+  - Apply policies: **Keep First Occurrence**, **Keep Last Occurrence**, or **Remove All Members**.
+* **Type Conversion & Text Normalization:**
+  - Explicit numeric and datetime parsing with non-destructive preview and coercion error handling.
+  - Text normalization: leading/trailing whitespace trimming, lowercase, uppercase, and title-case.
+
+#### 4. Feature Engineering Playground
+Pure allowlisted functional transformations (strictly **NO** `eval()` or `exec()` for security):
+* **Numeric Arithmetic:** Addition, subtraction, multiplication, and division across two columns or scalar values. Includes automatic divide-by-zero protection (coerces to `np.nan` instead of crashing or generating `inf`).
+* **Mathematical Transforms:** Absolute value (`abs`), natural logarithm (`log`), and `log1p` with automatic invalid non-positive input safety.
+* **Binning:** Quantile-based or uniform interval binning into user-selected tiers.
+* **Datetime Decomposition & Delays:** Extract year, month, day, day of week, quarter, or calculate time differences between date fields in days.
+* **Categorical Mapping & Indicators:** User-defined category dictionary mapping, binary indicators (0/1), and manageable one-hot encoding.
+* **Text Features:** Character length and word count extraction.
+* **Column Collision Protection:** Creating features with existing names is prevented unless overwrite is explicitly requested.
+
+#### 5. Integrated Netflix Strategic Feature Recipes
+Pre-conditioned business logic recipes available when source schema matches:
+* `acquisition_lag`: Temporal lag between release year and platform addition.
+* `content_origin_proxy`: Strategic classification (`Likely Original / Day-and-Date`, `Recent Release`, `Catalog Acquisition`).
+* `audience_tier`: Grouping 10+ ratings into *Kids*, *Family / Teens*, *Mature / Adults*.
+* `primary_genre` & `primary_country`: Leading item extraction from multi-label strings.
+* `metadata_soup`: NLP token concatenation for content recommender vectorization.
+
+#### 6. "What Changed?" Comparison Engine & Audit Ledger
+* Every applied or previewed operation computes real before-and-after deltas:
+  - Rows added / removed.
+  - Columns added / removed.
+  - Data types altered.
+  - Missing cells delta.
+  - Duplicates delta.
+  - Summary statistics before vs. after for affected features.
+* **Transformation Audit Ledger:** Visible log tracking step number, operation, parameters, and outcomes.
+* **Deterministic Undo & Reset:** Undo the last applied operation or reset all transformations back to the raw source snapshot by replaying the serializable configuration plan.
+
+#### 7. Export Hub
+* **Transformed Dataset (CSV):** Download complete working copy without internal index columns.
+* **Cleaning & Feature Engineering Audit Report (Markdown/CSV):** Comprehensive report with session disclosure, original vs. final dimensions, and step-by-step audit details.
+* **Reproducible Pipeline Config (JSON):** Serialized configuration plan that can be replayed on compatible datasets.
 
 ### 7. Running Automated Tests
 Run the comprehensive automated unit test suite from the project root:
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
-All 20 unit tests validate source resolution, encodings, missingness masks, schema profiling, distribution stats, filter combinations, pagination, and data isolation.
+All 45 automated unit tests validate:
+- Dataset identity SHA-256 collision prevention and state invalidation.
+- Deterministic systematic linspace sampling across 501, 750, 999, 1,000, and 10,000 row datasets.
+- Unified missingness semantics and non-removal of literal strings.
+- High-cardinality categorical search filtering (>50 distinct categories).
+- Inclusive date range boundary filtering.
+- Imputation (mean, median, mode, constant), row/column dropping, deduplication, and type parsing.
+- Feature engineering (arithmetic, div/0 safety, log, binning, datetime, one-hot, word count).
+- Source DataFrame immutability, deterministic undo/reset replay, and exports.
 
 ---
 
 ## 📊 Dashboard Tour
 
 ### Tab 0: 🔬 DataLab: Explore Dataset
-Interactive data exploration workspace for schema profiling, missingness visualizers, column distributions, multi-condition filtering, record inspection, and CSV exports.
+Interactive dataset exploration workspace: schema profiling, missingness visualizers, column distributions, multi-condition filtering, date filtering, high-cardinality search, record inspection, and CSV exports.
 
-### Tab 1: 📈 Executive Strategy & Growth
+### Tab 1: 🧹 DataLab: Clean & Transform
+First-class interactive data cleaning and feature engineering workspace: automated quality audit, missingness handling, deduplication, text normalization, allowlisted feature engineering playground, strategic Netflix recipes, What Changed? comparison card, step audit ledger, undo/reset state management, and export hub.
+
+### Tab 2: 📈 Executive Strategy & Growth
 - **Catalog Expansion Velocity:** Tracks yearly title additions split by Movies vs. TV Shows, revealing the post-2016 inflection point.
 - **The Studio Defense Pivot:** 100% normalized view showing the transition from studio back-catalogs to original/same-year releases.
 - **Annual Ingestion Ledger:** Quantitative summary table of volume, TV share %, and Originals proxy %.
 
-### Tab 2: 🌍 Global Footprint & Ratings
+### Tab 3: 🌍 Global Footprint & Ratings
 - **Production Powerhouses:** Top 14 producing nations segmented by audience maturity tiers (*Kids*, *Family / Teens*, *Mature / Adults*).
 - **International Content Strategy Matrix:** Highlights localization differences between Western markets and emerging high-growth regions like India and South Korea.
 
-### Tab 3: 🎭 Genre & Format Mechanics
+### Tab 4: 🎭 Genre & Format Mechanics
 - **Runtime Optimization:** Movie runtime distribution showing the median and the 90–110 min sweet spot.
 - **The Season 2 Cliff:** TV season attrition rates illustrating the financial dynamics behind series cancellations.
 - **Genre Co-Occurrence Heatmap:** 2D matrix identifying which content categories are most frequently packaged together.
 
-### Tab 4: 🛠️ EDA Data Hygiene & Engineering Log
+### Tab 5: 🛠️ EDA Data Hygiene & Engineering Log
 - **Hygiene KPI Scorecard:** Initial row count, final cleaned count, and dropped anomaly rate (<1.5%).
 - **Missing Director Hypothesis Deep Dive:** Interactive visual and statistical proof explaining episodic TV director attribution.
 - **Missing Value Audit Ledger:** Comprehensive before-and-after table tracking null counts and percentages across all features.
 - **Cleaned Data Explorer & CSV Export:** Interactive table with one-click export for downstream modeling.
 
-### Tab 5: 🤖 AI Recommender Engine
+### Tab 6: 🤖 AI Recommender Engine
 - **NLP Metadata Soup Construction:** Blends lowercased titles, sanitized director/cast name tokens (`Tom Hanks` -> `tomhanks`), genre categories, and descriptions.
 - **TF-IDF & Cosine Similarity Matrix:** Scikit-Learn vectorizer (5,000 max features, English stop words) generating high-dimensional semantic embeddings.
 - **Interactive Title Search & Slicer Integration:** Instant query lookup across the active catalog slice with dedicated target spotlight.

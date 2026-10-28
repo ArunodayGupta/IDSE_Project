@@ -8,6 +8,7 @@ and profiling algorithms that can be tested independently of Streamlit.
 """
 
 from typing import Dict, Any, List, Optional, Tuple, Union
+import hashlib
 import io
 import math
 import os
@@ -19,6 +20,65 @@ import pandas as pd
 def get_project_root() -> Path:
     """Returns the absolute Path to the project root directory."""
     return Path(__file__).resolve().parent.parent
+
+
+def compute_dataset_identity(
+    df: pd.DataFrame,
+    source_name: str = "dataset",
+    file_bytes: Optional[bytes] = None,
+    file_path: Optional[str] = None,
+    source_type: Optional[str] = None,
+    resolved_path: Optional[str] = None,
+    filename: Optional[str] = None,
+    **kwargs: Any
+) -> str:
+    """
+    Computes a deterministic cryptographic source identity (SHA-256) for state invalidation.
+    - For uploaded files with bytes: hashes bytes + filename.
+    - For local disk files: hashes resolved path + mtime + size.
+    - For in-memory DataFrames: hashes schema, dtypes, and value signatures.
+
+    Args:
+        df: The pandas DataFrame.
+        source_name: Filename or descriptor of the dataset.
+        file_bytes: Raw file bytes if uploaded.
+        file_path: Filesystem path if loaded from disk.
+
+    Returns:
+        str: Cryptographic identity string prefixed with source type.
+    """
+    if filename:
+        source_name = filename
+    actual_path = resolved_path or file_path
+    hasher = hashlib.sha256()
+
+    if file_bytes is not None and len(file_bytes) > 0:
+        hasher.update(file_bytes)
+        hasher.update(source_name.encode("utf-8", errors="ignore"))
+        return f"bytes_{hasher.hexdigest()}"
+
+    if actual_path is not None and os.path.exists(actual_path):
+        st = os.stat(actual_path)
+        hasher.update(os.path.abspath(actual_path).encode("utf-8", errors="ignore"))
+        hasher.update(str(st.st_mtime_ns).encode("utf-8"))
+        hasher.update(str(st.st_size).encode("utf-8"))
+        return f"file_{hasher.hexdigest()}"
+
+    # In-memory DataFrame hashing
+    hasher.update(source_name.encode("utf-8", errors="ignore"))
+    hasher.update(f"{df.shape[0]}x{df.shape[1]}".encode("utf-8"))
+    for col in df.columns:
+        hasher.update(str(col).encode("utf-8", errors="ignore"))
+        hasher.update(str(df[col].dtype).encode("utf-8"))
+
+    try:
+        val_hash = pd.util.hash_pandas_object(df, index=False).to_numpy().tobytes()
+        hasher.update(val_hash)
+    except Exception:
+        sample_str = df.head(10).to_csv(index=False) + df.tail(10).to_csv(index=False)
+        hasher.update(sample_str.encode("utf-8", errors="ignore"))
+
+    return f"df_{hasher.hexdigest()}"
 
 
 def resolve_builtin_netflix_path() -> str:
@@ -37,6 +97,7 @@ def resolve_builtin_netflix_path() -> str:
         if c.exists():
             return str(c.resolve())
     raise FileNotFoundError("Built-in netflix_titles.csv not found in data/ or project root.")
+
 
 
 def load_csv_from_file_or_bytes(
@@ -135,10 +196,12 @@ def load_csv_from_file_or_bytes(
             "Consider selecting a subset of columns for focused analysis."
         )
 
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
     metadata: Dict[str, Any] = {
         "filename": filename,
         "encoding_used": successful_encoding,
         "file_size_bytes": len(file_bytes),
+        "content_hash": content_hash,
         "row_count": len(parsed_df),
         "column_count": parsed_df.shape[1],
         "duplicate_columns": duplicate_cols,
@@ -343,12 +406,12 @@ def compute_column_schema(
         col_missing = int(missing_mask[col].sum())
         col_non_null = total_rows - col_missing
         missing_pct = round((col_missing / total_rows * 100), 2) if total_rows > 0 else 0.0
-        distinct_count = int(series.nunique(dropna=True))
+        valid_series = series[~missing_mask[col]]
+        distinct_count = int(valid_series.nunique(dropna=True))
         ltype = classify_column_type(series)
 
         # Retrieve a few distinct, non-missing sample values
-        non_null_series = series[~missing_mask[col]]
-        samples_list = non_null_series.dropna().astype(str).unique()[:3].tolist()
+        samples_list = valid_series.dropna().astype(str).unique()[:3].tolist()
         sample_str = ", ".join(f"'{s}'" if len(s) < 25 else f"'{s[:22]}...'" for s in samples_list)
         if not sample_str:
             sample_str = "[None / All Missing]"
@@ -444,8 +507,8 @@ def get_missingness_matrix(
 
     was_sampled = total_rows > max_rows
     if was_sampled:
-        step = max(1, total_rows // max_rows)
-        sampled_indices = df.index[::step][:max_rows]
+        sampled_pos = np.linspace(0, total_rows - 1, max_rows, dtype=int)
+        sampled_indices = df.index[sampled_pos]
         matrix_df = missing_mask.loc[sampled_indices].astype(int)
     else:
         matrix_df = missing_mask.astype(int)
@@ -553,12 +616,20 @@ def compute_categorical_stats(
     """
     total_count = len(series)
 
-    # Determine missingness
+    # Determine missingness strictly consistent with get_missing_mask
+    is_missing = series.isna()
     if treat_empty_as_missing:
-        cleaned_series = series.astype(str).str.strip()
-        is_missing = series.isna() | (cleaned_series == "") | (cleaned_series.str.lower().isin(["nan", "none"]))
-    else:
-        is_missing = series.isna()
+        if (
+            pd.api.types.is_object_dtype(series)
+            or pd.api.types.is_string_dtype(series)
+            or isinstance(series.dtype, pd.CategoricalDtype)
+        ):
+            non_null = series[~is_missing]
+            if not non_null.empty:
+                whitespace_mask = non_null.astype(str).str.strip() == ""
+                if whitespace_mask.any():
+                    is_missing = is_missing.copy()
+                    is_missing.loc[whitespace_mask[whitespace_mask].index] = True
 
     missing_count = int(is_missing.sum())
     valid_count = total_count - missing_count
@@ -803,13 +874,22 @@ def apply_explorer_filters(
 
     # 7. Date Range Filters
     date_ranges = filters.get("date_ranges", {})
+    parsed_date_cols = filters.get("parsed_datetime_cols", {})
     for col, (start_dt, end_dt) in date_ranges.items():
-        if col in df.columns and (start_dt is not None or end_dt is not None):
-            dt_series = pd.to_datetime(df[col], errors="coerce")
+        if (col in df.columns or col in parsed_date_cols) and (start_dt is not None or end_dt is not None):
+            if col in parsed_date_cols:
+                dt_series = parsed_date_cols[col]
+            else:
+                try:
+                    dt_series = pd.to_datetime(df[col], errors="coerce", format="mixed")
+                except (ValueError, TypeError):
+                    dt_series = pd.to_datetime(df[col], errors="coerce")
+
             if start_dt:
                 mask = mask & (dt_series >= pd.to_datetime(start_dt))
             if end_dt:
-                mask = mask & (dt_series <= pd.to_datetime(end_dt))
+                end_timestamp = pd.to_datetime(end_dt) + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+                mask = mask & (dt_series <= end_timestamp)
 
     return df[mask].copy()
 

@@ -16,6 +16,7 @@ import pandas as pd
 
 from src.data_explorer import (
     resolve_builtin_netflix_path,
+    compute_dataset_identity,
     load_csv_from_file_or_bytes,
     get_missing_mask,
     classify_column_type,
@@ -426,7 +427,105 @@ class TestDataLabCoreExplorer(unittest.TestCase):
         new_mtime = os.path.getmtime(netflix_path)
         self.assertEqual(original_mtime, new_mtime)
 
+    def test_dataset_identity_collision_prevention(self):
+        """Regression test A2: Two CSVs with identical filename and dimensions but different values produce distinct identities."""
+        csv1 = b"id,val\n1,Alpha\n2,Beta\n"
+        csv2 = b"id,val\n1,Gamma\n2,Delta\n"
+        df1, _ = load_csv_from_file_or_bytes(csv1, filename="dataset.csv")
+        df2, _ = load_csv_from_file_or_bytes(csv2, filename="dataset.csv")
+
+        self.assertEqual(len(df1), len(df2))
+        self.assertEqual(df1.shape, df2.shape)
+
+        id1 = compute_dataset_identity(df1, source_type="uploaded", file_bytes=csv1, filename="dataset.csv")
+        id2 = compute_dataset_identity(df2, source_type="uploaded", file_bytes=csv2, filename="dataset.csv")
+
+        self.assertNotEqual(id1, id2, "Cryptographic dataset identity failed to distinguish different datasets with identical dimensions.")
+
+    def test_missingness_matrix_linspace_sampling_across_all_ranges(self):
+        """Regression test A8: Matrix sampling at 501, 750, 999, 1,000, and 10,000 rows spans entire row range."""
+        test_sizes = [501, 750, 999, 1000, 10000]
+        max_rows = 500
+
+        for n_rows in test_sizes:
+            df = pd.DataFrame({
+                "a": np.arange(n_rows),
+                "b": [np.nan if i % 2 == 0 else 1.0 for i in range(n_rows)],
+            })
+            sampled_mat, was_sampled, total_recs = get_missingness_matrix(df, max_rows=max_rows)
+
+            self.assertTrue(was_sampled)
+            self.assertEqual(total_recs, n_rows)
+            self.assertEqual(len(sampled_mat), max_rows)
+            # Verify sampled indices span from row 0 to the very last row (n_rows - 1)
+            self.assertEqual(sampled_mat.index[0], 0, f"Sampling for {n_rows} rows did not start at index 0.")
+            self.assertEqual(sampled_mat.index[-1], n_rows - 1, f"Sampling for {n_rows} rows did not reach final index {n_rows - 1}.")
+
+    def test_missingness_matrix_below_limit(self):
+        """Matrix sampling for datasets <= max_rows returns exact rows without sampling."""
+        df = pd.DataFrame({"a": np.arange(250), "b": np.arange(250)})
+        sampled_mat, was_sampled, total_recs = get_missingness_matrix(df, max_rows=500)
+        self.assertFalse(was_sampled)
+        self.assertEqual(len(sampled_mat), 250)
+        self.assertEqual(total_recs, 250)
+
+    def test_unified_missing_value_semantics_literal_strings(self):
+        """Regression test A4: Literal strings 'nan', 'none', 'NULL' are NOT treated as missing."""
+        df = pd.DataFrame({
+            "code": ["nan", "none", "NULL", "N/A", "Valid1", "Valid2", None, np.nan, "   "]
+        })
+
+        # treat_empty_as_missing=False: only None, np.nan are missing (2 of 9)
+        mask_false = get_missing_mask(df, treat_empty_as_missing=False)
+        self.assertEqual(mask_false["code"].sum(), 2)
+
+        cat_stats_false = compute_categorical_stats(df["code"], treat_empty_as_missing=False)
+        self.assertEqual(cat_stats_false["valid_count"], 7)
+        self.assertIn("nan", cat_stats_false["freq_table"]["Category"].values)
+        self.assertIn("none", cat_stats_false["freq_table"]["Category"].values)
+
+        # treat_empty_as_missing=True: None, np.nan, and "   " are missing (3 of 9)
+        mask_true = get_missing_mask(df, treat_empty_as_missing=True)
+        self.assertEqual(mask_true["code"].sum(), 3)
+
+        cat_stats_true = compute_categorical_stats(df["code"], treat_empty_as_missing=True)
+        self.assertEqual(cat_stats_true["valid_count"], 6)
+
+        # compute_column_schema distinct count must agree
+        schema = compute_column_schema(df, treat_empty_as_missing=True)
+        code_schema = schema[schema["Column"] == "code"].iloc[0]
+        self.assertEqual(code_schema["Missing Count"], 3)
+        self.assertEqual(code_schema["Non-Null Count"], 6)
+
+    def test_high_cardinality_categorical_filtering(self):
+        """Regression test A6: Categorical column with more than 50 distinct values filters correctly."""
+        num_categories = 75
+        df = pd.DataFrame({
+            "category": [f"Cat_{i:03d}" for i in range(num_categories)],
+            "val": np.arange(num_categories),
+        })
+
+        # Filter by choosing categories beyond the 50th item
+        target_cats = ["Cat_055", "Cat_060", "Cat_070"]
+        filtered = apply_explorer_filters(df, {"categorical_selections": {"category": target_cats}})
+        self.assertEqual(len(filtered), 3)
+        self.assertEqual(set(filtered["category"].tolist()), set(target_cats))
+
+    def test_date_range_filtering_inclusive_bounds(self):
+        """Regression test A5: Date filtering respects inclusive boundaries on start and end dates."""
+        df = pd.DataFrame({
+            "title": ["Movie 1", "Movie 2", "Movie 3", "Movie 4"],
+            "release_date": ["2020-01-01", "2020-06-15", "2020-12-31", "2021-01-01"]
+        })
+
+        # Inclusive filter from 2020-01-01 to 2020-12-31 should capture Movies 1, 2, and 3
+        filtered = apply_explorer_filters(
+            df,
+            {"date_ranges": {"release_date": ("2020-01-01", "2020-12-31")}}
+        )
+        self.assertEqual(len(filtered), 3)
+        self.assertNotIn("Movie 4", filtered["title"].values)
+
 
 if __name__ == "__main__":
     unittest.main()
-
