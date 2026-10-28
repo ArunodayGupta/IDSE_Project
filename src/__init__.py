@@ -16,6 +16,26 @@ from .visualizations import (
     plot_missing_directors_comparison,
 )
 
+from .data_explorer import (
+    resolve_builtin_netflix_path,
+    load_csv_from_file_or_bytes,
+    get_missing_mask,
+    classify_column_type,
+    compute_overview_metrics,
+    compute_column_schema,
+    compute_missing_rankings,
+    get_missingness_matrix,
+    compute_numeric_stats,
+    compute_categorical_stats,
+    compute_datetime_stats,
+    preview_datetime_parsing,
+    apply_explorer_filters,
+    paginate_dataframe,
+    export_filtered_csv,
+    export_profile_csv,
+)
+from .explorer_ui import render_explorer_tab
+
 __all__ = [
     "ensure_data_exists",
     "clean_netflix_data",
@@ -29,4 +49,21 @@ __all__ = [
     "plot_genre_cooccurrence",
     "plot_duration_distributions",
     "plot_missing_directors_comparison",
+    "resolve_builtin_netflix_path",
+    "load_csv_from_file_or_bytes",
+    "get_missing_mask",
+    "classify_column_type",
+    "compute_overview_metrics",
+    "compute_column_schema",
+    "compute_missing_rankings",
+    "get_missingness_matrix",
+    "compute_numeric_stats",
+    "compute_categorical_stats",
+    "compute_datetime_stats",
+    "preview_datetime_parsing",
+    "apply_explorer_filters",
+    "paginate_dataframe",
+    "export_filtered_csv",
+    "export_profile_csv",
+    "render_explorer_tab",
 ]

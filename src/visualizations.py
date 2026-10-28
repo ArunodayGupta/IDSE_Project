@@ -1,14 +1,15 @@
 """
 visualizations.py
-Modular Plotly chart engine using a bespoke Netflix brand design system.
+Modular Plotly chart engine using an enterprise corporate design system
+(blue, white, and grey palette).
 
 Visualizations:
-1. plot_catalog_growth: Stacked area / grouped bar chart of Movies vs. TV Shows over time.
-2. plot_acquisition_lag_trend: Evolution of Same-Year Originals vs. Back-Catalog studio licensing.
+1. plot_catalog_growth: Area / line chart of Movies vs. TV Shows over time.
+2. plot_acquisition_lag_trend: Evolution of Same-Year Originals vs. Back-Catalog licensing.
 3. plot_top_countries_audience: Top producing countries segmented by audience maturity tier.
-4. plot_genre_cooccurrence: 2D co-occurrence heatmap of the top genres.
-5. plot_duration_distributions: Side-by-side subplots of Movie runtime sweet spot & TV season cliffs.
-6. plot_missing_directors_comparison: Hypothesis proof comparing TV vs. Movie missing director rates.
+4. plot_genre_cooccurrence: 2D co-occurrence heatmap of top genres.
+5. plot_duration_distributions: Side-by-side subplots of Movie runtime & TV season distribution.
+6. plot_missing_directors_comparison: Rate comparison of TV vs. Movie missing director values.
 """
 
 from typing import Dict, Any, List, Optional
@@ -21,31 +22,39 @@ from plotly.subplots import make_subplots
 from .feature_engineer import explode_column
 
 
-# Netflix Brand Design System Constants
-NETFLIX_RED = "#E50914"
-NETFLIX_CRIMSON = "#B20710"
-NETFLIX_DARK_RED = "#831010"
-NETFLIX_CHARCOAL = "#141414"
-NETFLIX_CARD_BG = "#1F1F1F"
-TEXT_WHITE = "#F5F5F1"
-TEXT_MUTED = "#9CA3AF"
-GRID_COLOR = "rgba(255, 255, 255, 0.08)"
+# Corporate Design System Constants (Blue, White, and Grey Palette)
+PRIMARY_BLUE = "#2C7BE5"
+LIGHT_BLUE = "#6EA8FE"
+NAVY_BLUE = "#0D6EFD"
+SLATE_GREY = "#6C757D"
+DARK_SLATE = "#2B3035"
+LIGHT_GREY = "#E9ECEF"
+BORDER_GREY = "#DEE2E6"
+CARD_BG = "#FFFFFF"
+TEXT_MAIN = "#2B3035"
+TEXT_MUTED = "#6C757D"
+GRID_COLOR = "#E9ECEF"
+
+# Backward-compatibility aliases if referenced elsewhere
+NETFLIX_RED = PRIMARY_BLUE
+NETFLIX_CRIMSON = NAVY_BLUE
+TEXT_WHITE = DARK_SLATE
 
 AUDIENCE_COLOR_MAP = {
-    "Mature / Adults": "#E50914",
-    "Family / Teens": "#3B82F6",
-    "Kids": "#10B981"
+    "Mature / Adults": PRIMARY_BLUE,
+    "Family / Teens": LIGHT_BLUE,
+    "Kids": SLATE_GREY
 }
 
 ORIGIN_COLOR_MAP = {
-    "Same-Year (Original/Exclusive Proxy)": "#E50914",
-    "Recent Release (1-3 Yrs)": "#F59E0B",
-    "Back-Catalog (>3 Yrs)": "#4B5563"
+    "Same-Year (Original/Exclusive Proxy)": PRIMARY_BLUE,
+    "Recent Release (1-3 Yrs)": LIGHT_BLUE,
+    "Back-Catalog (>3 Yrs)": SLATE_GREY
 }
 
 
-def _apply_dark_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.Figure:
-    """Helper to apply consistent modern Netflix dark styling to any Plotly figure."""
+def _apply_corporate_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.Figure:
+    """Helper to apply consistent modern corporate light BI styling to any Plotly figure."""
     fig.update_layout(
         title={
             "text": f"<b>{title}</b>" if title else "",
@@ -53,54 +62,54 @@ def _apply_dark_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.
             "x": 0.03,
             "xanchor": "left",
             "yanchor": "top",
-            "font": {"size": 14, "color": TEXT_WHITE, "family": "Inter, Segoe UI, sans-serif"}
+            "font": {"size": 14, "color": DARK_SLATE, "family": "Inter, Segoe UI, sans-serif"}
         },
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=height,
         margin={"l": 40, "r": 20, "t": 50, "b": 80},
-        font={"family": "Inter, Segoe UI, sans-serif", "color": TEXT_MUTED, "size": 12},
+        font={"family": "Inter, Segoe UI, sans-serif", "color": DARK_SLATE, "size": 12},
         legend={
             "orientation": "h",
             "yanchor": "top",
             "y": -0.2,
             "xanchor": "center",
             "x": 0.5,
-            "bgcolor": "rgba(20,20,20,0.85)",
-            "bordercolor": "rgba(255,255,255,0.1)",
+            "bgcolor": "rgba(255, 255, 255, 0.9)",
+            "bordercolor": BORDER_GREY,
             "borderwidth": 1,
-            "font": {"color": TEXT_WHITE, "size": 10}
+            "font": {"color": DARK_SLATE, "size": 11}
         },
         hoverlabel={
-            "bgcolor": "#1F1F1F",
+            "bgcolor": CARD_BG,
             "font_size": 12,
             "font_family": "Inter, Segoe UI, sans-serif",
-            "font_color": TEXT_WHITE,
-            "bordercolor": NETFLIX_RED
+            "font_color": DARK_SLATE,
+            "bordercolor": BORDER_GREY
         }
     )
     fig.update_xaxes(
-        gridcolor=GRID_COLOR,
-        zerolinecolor=GRID_COLOR,
-        tickfont={"color": TEXT_MUTED}
+        gridcolor=LIGHT_GREY,
+        zerolinecolor=LIGHT_GREY,
+        tickfont={"color": SLATE_GREY}
     )
     fig.update_yaxes(
-        gridcolor=GRID_COLOR,
-        zerolinecolor=GRID_COLOR,
-        tickfont={"color": TEXT_MUTED}
+        gridcolor=LIGHT_GREY,
+        zerolinecolor=LIGHT_GREY,
+        tickfont={"color": SLATE_GREY}
     )
     return fig
 
 
 def plot_catalog_growth(df: pd.DataFrame) -> go.Figure:
     """
-    1. The Pivot: Stacked area / bar chart showing additions of Movies vs. TV Shows over time.
-    Highlights Netflix's strategic transition toward TV binge models.
+    1. Catalog Growth: Stacked area / line chart showing additions of Movies vs. TV Shows over time.
+    Highlights the strategic shift in content mix.
     """
     if "year_added" not in df.columns or "type" not in df.columns:
         return go.Figure()
 
-    # Filter out anomalous years (e.g. prior to 2010 when Netflix streaming was in infancy)
+    # Filter out anomalous years (e.g. prior to 2010 when streaming was nascent)
     valid_df = df[df["year_added"] >= 2010].copy()
     if valid_df.empty:
         valid_df = df.copy()
@@ -128,9 +137,9 @@ def plot_catalog_growth(df: pd.DataFrame) -> go.Figure:
         y=growth["Movie"],
         mode="lines",
         name="Movies",
-        line={"width": 2.5, "color": "#EF4444"},
+        line={"width": 2.5, "color": SLATE_GREY},
         stackgroup="one",
-        fillcolor="rgba(239, 68, 68, 0.45)",
+        fillcolor="rgba(108, 117, 125, 0.25)",
         hovertemplate="<b>Year %{x}</b><br>Movies Added: %{y:,}<extra></extra>"
     ))
 
@@ -140,47 +149,47 @@ def plot_catalog_growth(df: pd.DataFrame) -> go.Figure:
         y=growth["TV Show"],
         mode="lines",
         name="TV Shows",
-        line={"width": 2.5, "color": "#3B82F6"},
+        line={"width": 2.5, "color": PRIMARY_BLUE},
         stackgroup="one",
-        fillcolor="rgba(59, 130, 246, 0.45)",
+        fillcolor="rgba(44, 123, 229, 0.25)",
         hovertemplate="<b>Year %{x}</b><br>TV Shows Added: %{y:,}<extra></extra>"
     ))
 
-    # Add Line for TV Share percentage on secondary axis or hover
+    # Add Line for Total additions
     fig.add_trace(go.Scatter(
         x=growth["year_added"],
         y=growth["Total"],
         mode="lines+markers",
         name="Total Catalog Added",
-        line={"width": 2, "color": "#F3F4F6", "dash": "dot"},
-        marker={"size": 6, "color": "#FFFFFF"},
+        line={"width": 2, "color": DARK_SLATE, "dash": "dot"},
+        marker={"size": 6, "color": PRIMARY_BLUE},
         hovertemplate="<b>Year %{x}</b><br>Total Additions: %{y:,}<extra></extra>"
     ))
 
-    # Annotate pivot point (around 2018-2020)
+    # Annotate peak additions
     if not growth.empty:
         peak_row = growth.loc[growth["Total"].idxmax()]
         fig.add_annotation(
             x=peak_row["year_added"],
             y=peak_row["Total"],
-            text=f"Peak Velocity ({int(peak_row['Total'])} titles)",
+            text=f"Peak Additions ({int(peak_row['Total']):,} titles)",
             showarrow=True,
             arrowhead=2,
-            arrowcolor=NETFLIX_RED,
+            arrowcolor=PRIMARY_BLUE,
             ax=0,
             ay=-40,
-            font={"color": TEXT_WHITE, "size": 11},
-            bgcolor="rgba(20,20,20,0.9)",
-            bordercolor=NETFLIX_RED,
+            font={"color": DARK_SLATE, "size": 11},
+            bgcolor=CARD_BG,
+            bordercolor=BORDER_GREY,
             borderwidth=1
         )
 
-    _apply_dark_theme(
+    _apply_corporate_theme(
         fig,
         title="",
         height=430
     )
-    fig.update_xaxes(title="Year Added to Netflix")
+    fig.update_xaxes(title="Year Added to Catalog")
     fig.update_yaxes(title="Titles Added per Year")
     return fig
 
@@ -224,12 +233,12 @@ def plot_acquisition_lag_trend(df: pd.DataFrame) -> go.Figure:
                 x=agg_pct["year_added"],
                 y=agg_pct[cat],
                 name=cat,
-                marker_color=ORIGIN_COLOR_MAP.get(cat, "#888888"),
+                marker_color=ORIGIN_COLOR_MAP.get(cat, SLATE_GREY),
                 hovertemplate=f"<b>%{{x}}</b><br>{cat}: <b>%{{y}}%</b><extra></extra>"
             ))
 
     fig.update_layout(barmode="stack")
-    _apply_dark_theme(
+    _apply_corporate_theme(
         fig,
         title="",
         height=430
@@ -241,7 +250,7 @@ def plot_acquisition_lag_trend(df: pd.DataFrame) -> go.Figure:
 
 def plot_top_countries_audience(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
     """
-    3. Global Production Powerhouses:
+    3. Global Production:
     Horizontal stacked bar chart of Top N producing countries, segmented by audience tier.
     Uses multi-label exploded country data.
     """
@@ -266,7 +275,7 @@ def plot_top_countries_audience(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
 
     # Order countries by total titles
     ct["Total"] = ct.sum(axis=1)
-    ct = ct.sort_values("Total", ascending=True)  # ascending so top appears on top in horizontal bar
+    ct = ct.sort_values("Total", ascending=True)
 
     fig = go.Figure()
     tiers = ["Kids", "Family / Teens", "Mature / Adults"]
@@ -278,12 +287,12 @@ def plot_top_countries_audience(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
                 x=ct[tier],
                 name=tier,
                 orientation="h",
-                marker_color=AUDIENCE_COLOR_MAP.get(tier, "#999999"),
+                marker_color=AUDIENCE_COLOR_MAP.get(tier, SLATE_GREY),
                 hovertemplate=f"<b>%{{y}}</b><br>{tier}: %{{x:,}} titles<extra></extra>"
             ))
 
     fig.update_layout(barmode="stack")
-    _apply_dark_theme(
+    _apply_corporate_theme(
         fig,
         title="",
         height=460
@@ -320,11 +329,11 @@ def plot_genre_cooccurrence(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
                     matrix.loc[g1, g2] += 1
 
     custom_colorscale = [
-        [0.0, "#141414"],
-        [0.2, "#281216"],
-        [0.4, "#50121A"],
-        [0.7, "#9B111E"],
-        [1.0, "#E50914"]
+        [0.0, "#F8F9FA"],
+        [0.2, "#E3EBF6"],
+        [0.4, "#ADC8F8"],
+        [0.7, "#6EA8FE"],
+        [1.0, "#2C7BE5"]
     ]
 
     fig = go.Figure(data=go.Heatmap(
@@ -334,12 +343,12 @@ def plot_genre_cooccurrence(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         colorscale=custom_colorscale,
         text=matrix.values,
         texttemplate="%{text}",
-        textfont={"size": 11, "color": "#FFFFFF"},
+        textfont={"size": 11, "color": DARK_SLATE},
         hoverongaps=False,
         hovertemplate="<b>%{y}</b> + <b>%{x}</b><br>Co-occurrences: %{z:,}<extra></extra>"
     ))
 
-    _apply_dark_theme(
+    _apply_corporate_theme(
         fig,
         title="",
         height=480
@@ -350,16 +359,16 @@ def plot_genre_cooccurrence(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
 
 def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
     """
-    5. Runtime & Bingeability:
+    5. Runtime & Season Distribution:
     Side-by-side subplots:
-    - Left: Movie runtime distribution (duration_min) highlighting the 90-110 min sweet spot.
-    - Right: TV Show season count drop-off (seasons_count) exposing the 'canceled after Season 2' cliff.
+    - Left: Movie runtime distribution (duration_min) highlighting the 90-110 min typical window.
+    - Right: TV Show season count distribution (seasons_count) detailing season drop-off rates.
     """
     fig = make_subplots(
         rows=1, cols=2,
         subplot_titles=(
-            "Movie Runtimes (The 90–110 Min Sweet Spot)",
-            "TV Show Seasons (The Season 2 Cliff)"
+            "Movie Runtimes (90–110 Min Window)",
+            "TV Show Seasons (Season Count Distribution)"
         ),
         horizontal_spacing=0.12
     )
@@ -369,13 +378,12 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
     if not movies_df.empty:
         runtimes = movies_df["duration_min"]
         median_runtime = runtimes.median()
-        mean_runtime = runtimes.mean()
 
         fig.add_trace(
             go.Histogram(
                 x=runtimes,
                 nbinsx=35,
-                marker_color="#E50914",
+                marker_color=PRIMARY_BLUE,
                 opacity=0.85,
                 name="Movies",
                 hovertemplate="Runtime: <b>%{x} min</b><br>Count: %{y}<extra></extra>"
@@ -387,21 +395,21 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
         fig.add_vline(
             x=median_runtime,
             line_dash="dash",
-            line_color="#FFFFFF",
+            line_color=DARK_SLATE,
             line_width=2,
             annotation_text=f"Median: {int(median_runtime)}m",
             annotation_position="top right",
-            annotation_font={"color": "#FFFFFF", "size": 11},
+            annotation_font={"color": DARK_SLATE, "size": 11},
             row=1, col=1
         )
 
         # Highlight sweet spot band (90-110m)
         fig.add_vrect(
             x0=90, x1=110,
-            fillcolor="rgba(255, 255, 255, 0.08)",
+            fillcolor="rgba(44, 123, 229, 0.12)",
             layer="below",
             line_width=1,
-            line_color="rgba(255, 255, 255, 0.2)",
+            line_color="rgba(44, 123, 229, 0.3)",
             row=1, col=1
         )
 
@@ -413,8 +421,8 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
         season_labels = [f"S{int(s)}" for s in season_counts.index]
         season_pcts = (season_counts / total_shows * 100).round(1)
 
-        # Bar colors: gradient from red to slate
-        colors = ["#E50914", "#B20710", "#831010", "#5A0C0C", "#3C1014", "#2B1114"]
+        # Bar colors: gradient from primary blue to slate grey
+        colors = ["#2C7BE5", "#4B8FE8", "#6EA8FE", "#9EC5FE", "#6C757D", "#ADB5BD"]
         bar_colors = [colors[min(i, len(colors)-1)] for i in range(len(season_counts))]
 
         fig.add_trace(
@@ -429,7 +437,7 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
             row=1, col=2
         )
 
-    _apply_dark_theme(fig, title="", height=430)
+    _apply_corporate_theme(fig, title="", height=430)
     fig.update_xaxes(title_text="Duration (Minutes)", row=1, col=1)
     fig.update_yaxes(title_text="Number of Movies", row=1, col=1)
     fig.update_xaxes(title_text="Season Count", row=1, col=2)
@@ -441,9 +449,9 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
 
 def plot_missing_directors_comparison(hygiene_report: Dict[str, Any]) -> go.Figure:
     """
-    6. Missing Director Hypothesis Visualizer:
+    6. Missing Director Field Analysis:
     Compares the missing director rate in Movies vs. TV Shows.
-    Proves that missing metadata is an inherent property of episodic TV.
+    Demonstrates that missing metadata is an inherent property of episodic TV.
     """
     h = hygiene_report.get("director_hypothesis", {})
     categories = ["Feature Films (Movies)", "Episodic TV Shows"]
@@ -463,14 +471,14 @@ def plot_missing_directors_comparison(hygiene_report: Dict[str, Any]) -> go.Figu
     fig = go.Figure(go.Bar(
         x=categories,
         y=missing_rates,
-        marker_color=["#3B82F6", "#E50914"],
+        marker_color=[LIGHT_BLUE, PRIMARY_BLUE],
         text=[f"<b>{r}%</b> Missing<br>({c:,} / {t:,})" for r, c, t in zip(missing_rates, missing_counts, totals)],
         textposition="inside",
         textfont={"color": "#FFFFFF", "size": 13},
         hovertemplate="<b>%{x}</b><br>Missing Director: %{y}%<extra></extra>"
     ))
 
-    _apply_dark_theme(fig, title="", height=350)
+    _apply_corporate_theme(fig, title="", height=350)
     fig.update_yaxes(title="Missing Director Rate (%)", range=[0, 100])
     fig.update_layout(showlegend=False)
     return fig

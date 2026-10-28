@@ -33,14 +33,19 @@ netflix-content-strategy-eda/
 │   └── netflix_titles.csv          # Official Kaggle dataset (8,800+ titles)
 ├── src/
 │   ├── __init__.py                 # Clean package exports
-│   ├── data_generator.py           # Dataset presence verification module
+│   ├── data_generator.py           # Robust dataset presence & path verification
 │   ├── data_cleaner.py             # Missing value audit, string parsing & hypothesis testing
+│   ├── data_explorer.py            # DataLab Phase 1 core profiling, schema, missingness & filtering engine
+│   ├── explorer_ui.py              # DataLab Phase 1 Streamlit UI components & visualizer
 │   ├── feature_engineer.py         # Licensing lag, audience tiering, multi-label exploders & metadata soup
 │   ├── model_trainer.py            # TF-IDF & Cosine Similarity NLP Content Recommender
-│   └── visualizations.py           # Plotly dark theme chart engine with bespoke brand styling
+│   └── visualizations.py           # Plotly chart engine with bespoke corporate styling
+├── tests/
+│   ├── __init__.py
+│   └── test_data_explorer.py       # Automated unit test suite (20 comprehensive tests)
 ├── notebooks/
 │   └── exploratory_analysis.ipynb  # Step-by-step narrative Jupyter notebook
-├── app.py                          # Streamlit executive dashboard (5 interactive tabs)
+├── app.py                          # Streamlit executive dashboard & DataLab workspace
 ├── requirements.txt                # Pinned production dependencies
 └── README.md                       # Strategic documentation & portfolio case study
 ```
@@ -130,7 +135,97 @@ The full dataset of **8,807 titles** is placed at `data/netflix_titles.csv`. The
 
 ---
 
+## 🔬 DataLab — Phase 1: Interactive Dataset Explorer
+
+Phase 1 transforms this project from a static dashboard into an interactive exploratory data science workspace called **DataLab**. Users can dynamically inspect schema quality, investigate column distributions, detect anomalies, filter records, inspect individual rows, and export findings.
+
+### 1. Launching the Application
+
+Run the application from the repository root:
+```bash
+streamlit run app.py
+```
+Or via the Python module:
+```bash
+python -m streamlit run app.py
+```
+The application will launch at `http://localhost:8501`. Navigate to the primary tab: **`🔬 DataLab: Explore Dataset`**.
+
+### 2. Dataset Source Selection & Loading
+The explorer supports two isolated data modes:
+* **Option A: Built-in Netflix Catalog (8,807 titles)** — Resolves the verified Kaggle catalog from `data/netflix_titles.csv` or root fallbacks relative to the project root.
+* **Option B: Upload Custom CSV** — Allows users to upload their own CSV file via `st.file_uploader`.
+  * **Encoding Robustness:** Automatically tries `UTF-8 with BOM (utf-8-sig)`, `UTF-8`, `Latin-1 (ISO-8859-1)`, and `CP1252 (Windows-1252)`.
+  * **Edge Case Handling:** Safely handles empty/0-byte files, duplicate column headers, wide datasets (>100 columns), and mixed data types with clear user-facing alerts.
+  * **Session Isolation:** Uploaded data remains strictly session-local. Uploading a custom dataset never overwrites files on disk or corrupts the legacy Netflix analytical models.
+
+### 3. Dataset Overview Dashboard & Metrics
+When a dataset is loaded, dynamic KPI cards present actual calculations:
+* **Row Count:** Displays current active count with indicator if filters are active (e.g. `Filtered from 8,807 total rows`).
+* **Columns:** Total column count with logical type breakdown (`Numeric`, `Categorical/Text`, `Datetime`, `Boolean`).
+* **Duplicate Rows:** Quantifies identical duplicate records across all columns.
+* **Missing Cells:** Total missing cells and overall dataset missingness percentage.
+* **Complete Rows:** Count and percentage of records containing zero missing values.
+* **Memory Usage:** Precise deep memory consumption formatted in KB/MB.
+
+### 4. Interactive Exploration Subtabs
+
+1. **📋 Column Schema & Data Dictionary:**
+   * Interactive table detailing Column Name, Logical Type, Pandas DataType, Non-Null Count, Missing Count, Missing %, Distinct Values, and representative non-null Sample Values.
+   * Search box to filter columns by name for wide datasets.
+   * Direct download button for the column profiling report (`CSV`).
+
+2. **🔍 Missing-Value Audit & Visualizer:**
+   * **Missingness Convention:** Includes a toggle to *"Treat empty or whitespace-only strings as missing"* (enabled by default). This treats `""`, `"   "`, and standard nulls consistently without mutating source data.
+   * **Missing Value Rankings:** Columns ordered descending by missing count and percentage with severity badges (`Critical >50%`, `High >20%`, `Moderate >0%`, `Zero Missing`).
+   * **Missingness Bar Chart:** Interactive Plotly bar chart visualizing missing percentages per feature.
+   * **Sparsity Matrix Heatmap:** 2D heatmap showing missing (red) vs. present (blue) cells across the dataset.
+   * **Inspect Missing Records:** Drill-down table to isolate records with missing values in any selected column.
+
+3. **📊 Column Distributions & Deep Dive:**
+   * **Numeric Columns:** Non-missing count, Mean, Median, Std Dev, Min, Max, Quartiles (Q1, Q3), IQR, Skewness, Zeros count, and Outlier detection via standard `1.5 * IQR` rule. Configurable histogram bins slider and outlier box plot.
+   * **Categorical/Text Columns:** Unique count, Top Category share %, configurable Top-N category slider (5–50), interactive horizontal frequency bar chart, frequency data table, and interactive record inspector for selected categories.
+   * **Datetime Columns:** Valid dates count, earliest date, latest date, time span in days, and yearly timeline frequency chart.
+   * **Non-Destructive Date Preview:** Preview date parsing on text columns without mutating original series.
+
+4. **🔎 Filter & Search Workspace:**
+   * **Deterministic AND Logic:** Multiple filters combine predictably with AND logic.
+   * **Global Search:** Case-insensitive substring query across text fields.
+   * **Numeric Range Filtering:** Min-max range sliders for any numeric column.
+   * **Categorical Selection:** Multi-select filtering with search support.
+   * **Text Substring:** Specific column substring queries.
+   * **Missingness Filtering:** Filter by rows that are missing or non-missing in a selected column, or rows with any missing cell.
+   * **Reset Action:** `🔄 Reset All Filters` button restores the full dataset view without resetting dataset source selection.
+
+5. **📑 Record Browser & Inspector:**
+   * Paginated record table with configurable page size (25, 50, 100 rows).
+   * Column visibility multi-selector to choose displayed attributes.
+   * Sort by any column in Ascending or Descending order.
+   * **Individual Record Inspector:** Select any record from the displayed page to inspect every attribute in full detail with formatted nulls (`[Missing / Null]`).
+
+### 5. Export Functionality
+* **Filtered Data Export (CSV):** Downloads all currently filtered records (not just the visible page) with original column order, excluding internal helper columns (`index=False`).
+* **Data Profile Report Export (CSV):** Downloads the complete column schema data dictionary.
+
+### 6. Intentional Performance Limits
+To keep the application responsive across large catalogs:
+* The Missingness Sparsity Matrix systematically samples up to 500 rows evenly spaced across the dataset when total rows exceed 500.
+* Categorical multiselect dropdowns cap option lists at the top 50 distinct categories to prevent browser latency on high-cardinality columns.
+* Plotly visualizations leverage native container sizing and WebGL acceleration where available.
+
+### 7. Running Automated Tests
+Run the comprehensive automated unit test suite from the project root:
+```bash
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+All 20 unit tests validate source resolution, encodings, missingness masks, schema profiling, distribution stats, filter combinations, pagination, and data isolation.
+
+---
+
 ## 📊 Dashboard Tour
+
+### Tab 0: 🔬 DataLab: Explore Dataset
+Interactive data exploration workspace for schema profiling, missingness visualizers, column distributions, multi-condition filtering, record inspection, and CSV exports.
 
 ### Tab 1: 📈 Executive Strategy & Growth
 - **Catalog Expansion Velocity:** Tracks yearly title additions split by Movies vs. TV Shows, revealing the post-2016 inflection point.

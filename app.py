@@ -1,9 +1,9 @@
 """
 app.py
-Executive Streamlit Dashboard: Netflix Content Strategy & Catalog EDA.
+Executive Streamlit Dashboard: Netflix Content Strategy & Catalog Intelligence.
 
-An interactive, portfolio-grade analytics platform showcasing data hygiene pipelines,
-feature engineering, multi-label category explosion, and executive business storytelling.
+An interactive analytics platform showcasing data hygiene pipelines,
+feature engineering, multi-label category analysis, and corporate business reporting.
 """
 
 import io
@@ -17,6 +17,7 @@ from src.data_generator import ensure_data_exists
 from src.data_cleaner import clean_netflix_data
 from src.feature_engineer import engineer_features, explode_column
 from src.model_trainer import ContentRecommender
+from src.explorer_ui import render_explorer_tab
 from src.visualizations import (
     plot_catalog_growth,
     plot_acquisition_lag_trend,
@@ -24,210 +25,240 @@ from src.visualizations import (
     plot_genre_cooccurrence,
     plot_duration_distributions,
     plot_missing_directors_comparison,
-    NETFLIX_RED,
-    NETFLIX_CRIMSON,
-    TEXT_WHITE,
-    TEXT_MUTED
+    PRIMARY_BLUE,
+    LIGHT_BLUE,
+    SLATE_GREY,
+    DARK_SLATE
 )
 
 # ---------------------------------------------------------
-# Page Configuration & Executive Aesthetics
+# Page Configuration & Corporate Aesthetics
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Netflix Content Strategy & Catalog EDA",
-    page_icon="🎬",
+    page_title="Netflix Content Strategy & Catalog Intelligence",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom High-End Styling (Netflix Brand Palette)
+# Custom Corporate Styling (Light Blue, White, and Grey Palette)
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-    /* Global Typography & Backgrounds */
+    /* Global Typography & Light Theme Backgrounds */
     html, body, [class*="css"] {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    
+
     .stApp {
-        background: radial-gradient(circle at 10% 10%, #1a1a1a 0%, #0d0d0d 100%);
-        color: #F5F5F1;
+        background-color: #F8F9FA;
+        color: #2B3035;
     }
 
-    /* Executive Metric Cards */
+    /* Sidebar Styling & Text Clarity */
+    [data-testid="stSidebar"] {
+        background-color: #E9ECEF;
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] span {
+        color: #2B3035 !important;
+    }
+    [data-testid="stSidebar"] .stSlider label,
+    [data-testid="stSidebar"] .stMultiSelect label {
+        color: #2B3035 !important;
+        font-weight: 600;
+    }
+
+    /* Executive Metric Cards (Elevated Left-Accent Design) */
     .metric-card {
-        background: linear-gradient(135deg, rgba(35, 35, 35, 0.7) 0%, rgba(20, 20, 20, 0.9) 100%);
-        border: 1px solid rgba(229, 9, 20, 0.25);
-        border-radius: 12px;
-        padding: 18px 22px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-        transition: transform 0.2s ease, border-color 0.2s ease;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #2C7BE5;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        transition: box-shadow 0.2s ease;
     }
     .metric-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(229, 9, 20, 0.6);
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
     }
     .metric-title {
-        color: #9CA3AF;
-        font-size: 0.82rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
+        color: #6C757D;
+        font-size: 0.85rem;
         font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
         margin-bottom: 6px;
     }
     .metric-value {
-        color: #FFFFFF;
-        font-size: 2.1rem;
-        font-weight: 800;
+        color: #2B3035;
+        font-size: 2.2rem;
+        font-weight: 700;
         line-height: 1.1;
     }
     .metric-sub {
-        color: #E50914;
+        color: #2C7BE5;
         font-size: 0.85rem;
-        font-weight: 600;
+        font-weight: 500;
         margin-top: 6px;
     }
     .metric-sub-neutral {
-        color: #60A5FA;
+        color: #6C757D;
         font-size: 0.85rem;
-        font-weight: 600;
+        font-weight: 500;
         margin-top: 6px;
     }
 
-    /* Strategic Callout Card */
+    /* Strategic Callout Card (Elevated Left-Accent Design) */
     .insight-box {
-        background: rgba(229, 9, 20, 0.08);
-        border-left: 4px solid #E50914;
-        border-radius: 0 10px 10px 0;
-        padding: 16px 20px;
-        margin: 18px 0;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #6EA8FE;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+        margin: 20px 0;
     }
     .insight-title {
-        color: #FF5A60;
-        font-size: 1.05rem;
+        color: #2C7BE5;
+        font-size: 1.1rem;
         font-weight: 700;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
     }
     .insight-body {
-        color: #E5E5E5;
-        font-size: 0.93rem;
-        line-height: 1.55;
+        color: #495057;
+        font-size: 0.95rem;
+        line-height: 1.6;
     }
 
     /* Badges */
     .badge-pill {
         display: inline-block;
-        padding: 3px 10px;
-        border-radius: 9999px;
+        padding: 4px 10px;
+        border-radius: 4px;
         font-size: 0.75rem;
-        font-weight: 700;
+        font-weight: 600;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        background-color: rgba(229, 9, 20, 0.2);
-        color: #FF4B4B;
-        border: 1px solid rgba(229, 9, 20, 0.4);
+        background-color: #E7F1FF;
+        color: #2C7BE5;
+        border: 1px solid #B6D4FE;
     }
 
-    /* Tab enhancements */
+    /* Tab enhancements & Visibility Fix */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        border-bottom: 1px solid #DEE2E6;
         padding-bottom: 6px;
     }
     .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
+        color: #495057 !important;
+        background-color: transparent;
+        border-radius: 6px;
         padding: 8px 18px;
         font-weight: 600;
-        color: #9CA3AF;
-        background-color: rgba(255, 255, 255, 0.03);
+    }
+    .stTabs [data-baseweb="tab"] p,
+    .stTabs [data-baseweb="tab"] div,
+    .stTabs [data-baseweb="tab"] span {
+        color: inherit !important;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #E50914 !important;
+        background-color: #2C7BE5 !important;
+        color: #FFFFFF !important;
+        border-radius: 6px;
+    }
+    .stTabs [aria-selected="true"] p,
+    .stTabs [aria-selected="true"] div,
+    .stTabs [aria-selected="true"] span {
         color: #FFFFFF !important;
     }
 
-    /* AI Recommender Visual Cards & Badges */
+    /* Corporate Recommender Visual Cards & Badges */
     .rec-card {
-        background: linear-gradient(135deg, rgba(28, 28, 28, 0.85) 0%, rgba(18, 18, 18, 0.95) 100%);
-        border: 1px solid rgba(229, 9, 20, 0.25);
-        border-radius: 12px;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #6EA8FE;
+        border-radius: 8px;
         padding: 20px 24px;
         margin-bottom: 16px;
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+        transition: box-shadow 0.2s ease, border-left-color 0.2s ease;
     }
     .rec-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(229, 9, 20, 0.7);
-        box-shadow: 0 10px 30px rgba(229, 9, 20, 0.25);
+        border-left-color: #2C7BE5;
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.08);
     }
     .rec-card-target {
-        background: linear-gradient(135deg, rgba(45, 15, 20, 0.85) 0%, rgba(20, 20, 20, 0.95) 100%);
-        border: 1px solid rgba(229, 9, 20, 0.55);
-        border-radius: 12px;
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #2C7BE5;
+        border-radius: 8px;
         padding: 20px 24px;
         margin-bottom: 24px;
-        box-shadow: 0 8px 24px rgba(229, 9, 20, 0.2);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
     }
     .rec-badge-similarity {
         display: inline-block;
         padding: 4px 12px;
-        border-radius: 9999px;
+        border-radius: 4px;
         font-size: 0.82rem;
-        font-weight: 700;
-        background: rgba(34, 197, 94, 0.15);
-        color: #4ADE80;
-        border: 1px solid rgba(34, 197, 94, 0.4);
+        font-weight: 600;
+        background-color: #EBF5FF;
+        color: #2C7BE5;
+        border: 1px solid #B6D4FE;
     }
     .rec-badge-rating {
         display: inline-block;
         padding: 4px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         font-size: 0.78rem;
-        font-weight: 700;
-        background: rgba(255, 255, 255, 0.08);
-        color: #F3F4F6;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-weight: 600;
+        background-color: #F8F9FA;
+        color: #495057;
+        border: 1px solid #DEE2E6;
     }
     .rec-badge-format {
         display: inline-block;
         padding: 4px 10px;
-        border-radius: 6px;
+        border-radius: 4px;
         font-size: 0.78rem;
-        font-weight: 700;
-        background: rgba(229, 9, 20, 0.2);
-        color: #FF5A60;
-        border: 1px solid rgba(229, 9, 20, 0.4);
+        font-weight: 600;
+        background-color: #E7F1FF;
+        color: #2C7BE5;
+        border: 1px solid #B6D4FE;
     }
     .rec-badge-rank {
         display: inline-block;
         padding: 4px 12px;
-        border-radius: 9999px;
+        border-radius: 4px;
         font-size: 0.8rem;
-        font-weight: 800;
+        font-weight: 600;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        background: rgba(229, 9, 20, 0.25);
+        background-color: #2C7BE5;
         color: #FFFFFF;
-        border: 1px solid #E50914;
+        border: 1px solid #2C7BE5;
     }
     .rec-title {
-        color: #FFFFFF;
-        font-size: 1.35rem;
+        color: #2B3035;
+        font-size: 1.25rem;
         font-weight: 700;
         margin-right: 12px;
         line-height: 1.3;
     }
     .rec-meta-line {
-        color: #9CA3AF;
+        color: #6C757D;
         font-size: 0.88rem;
         margin-top: 8px;
         margin-bottom: 10px;
         line-height: 1.5;
     }
     .rec-desc {
-        color: #E5E7EB;
+        color: #495057;
         font-size: 0.94rem;
         line-height: 1.6;
         margin-top: 8px;
@@ -249,7 +280,7 @@ def load_and_process_catalog():
     """
     csv_path = ensure_data_exists("data/netflix_titles.csv")
     raw_df = pd.read_csv(csv_path)
-    source_label = f"Kaggle Dataset: data/netflix_titles.csv ({len(raw_df):,} rows)"
+    source_label = f"Dataset: data/netflix_titles.csv ({len(raw_df):,} rows)"
 
     # Clean data & capture audit metrics
     cleaned_df, hygiene_report = clean_netflix_data(raw_df)
@@ -261,9 +292,9 @@ def load_and_process_catalog():
 
 
 # ---------------------------------------------------------
-# Cached AI Recommender Engine
+# Cached Content Recommender Engine
 # ---------------------------------------------------------
-@st.cache_resource(show_spinner="Fitting AI Content Recommender on active catalog slice...")
+@st.cache_resource(show_spinner="Fitting Content Recommender on active catalog slice...")
 def get_content_recommender(data_subset: pd.DataFrame) -> ContentRecommender:
     """
     Instantiates and fits the ContentRecommender on the provided catalog data.
@@ -275,26 +306,28 @@ def get_content_recommender(data_subset: pd.DataFrame) -> ContentRecommender:
 
 
 # ---------------------------------------------------------
-# Sidebar: Brand, Data Ingestion & Strategic Filters
+# Sidebar: Navigation, Data Ingestion & Strategic Filters
 # ---------------------------------------------------------
 with st.sidebar:
     st.markdown("""
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-            <div style="background-color: #E50914; color: white; font-weight: 900; font-size: 1.5rem; padding: 2px 12px; border-radius: 6px;">N</div>
-            <div style="font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; color: white;">CONTENT STRATEGY</div>
+            <div style="background-color: #2C7BE5; color: white; font-weight: 700; font-size: 1.25rem; padding: 4px 10px; border-radius: 4px;">BI</div>
+            <div style="font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; color: #2B3035;">CATALOG ANALYTICS</div>
         </div>
-        <div style="font-size: 0.8rem; color: #9CA3AF; margin-bottom: 16px;">
-            Portfolio-Grade Exploratory Data Analysis & Executive Dashboard
+        <div style="font-size: 0.82rem; color: #6C757D; margin-bottom: 16px;">
+            Exploratory Data Analysis & Executive Dashboard
         </div>
     """, unsafe_allow_html=True)
 
     raw_df, df, hygiene_report, data_source_label = load_and_process_catalog()
 
-    st.markdown("### 📥 Data Source")
-    st.success(f"Connected to Kaggle Dataset\nTotal Records: {len(df):,}")
+    st.markdown("### Data Source")
+    st.success(f"Connected to Dataset\nTotal Records: {len(df):,}")
 
     st.markdown("---")
-    st.markdown("### 🎛️ Strategic Slicers")
+    st.markdown("### Netflix Strategic Slicers")
+    st.caption("Filters below slice the Netflix Executive, Global, Format, and Recommender tabs. Use the DataLab tab for universal dataset exploration.")
+
 
     # Filter 1: Year Added Range
     min_year = int(df["year_added"].min()) if "year_added" in df.columns and not df.empty else 2010
@@ -335,7 +368,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(f"""
-        <div style="font-size: 0.76rem; color: #6B7280; line-height: 1.4;">
+        <div style="font-size: 0.76rem; color: #6C757D; line-height: 1.4;">
             <b>Active Pipeline:</b><br>{data_source_label}<br><br>
             <b>Engine:</b> Python 3.12 • Pandas • Plotly Express • Streamlit
         </div>
@@ -374,11 +407,11 @@ if selected_countries:
 col_head_1, col_head_2 = st.columns([3, 1])
 with col_head_1:
     st.markdown("""
-        <h1 style="margin-bottom: 2px; font-weight: 800; font-size: 2.2rem; color: #FFFFFF;">
-            Netflix Content Strategy & Catalog Intelligence
+        <h1 style="margin-bottom: 4px; font-weight: 700; font-size: 2.1rem; color: #2B3035;">
+            Content Strategy & Catalog Intelligence
         </h1>
-        <p style="color: #9CA3AF; font-size: 0.98rem; margin-top: 0px;">
-            An interactive executive inquiry into catalog composition, licensing lag, international expansion, and format ergonomics.
+        <p style="color: #6C757D; font-size: 0.98rem; margin-top: 0px;">
+            Executive analysis of catalog composition, licensing timelines, international distribution, and format specifications.
         </p>
     """, unsafe_allow_html=True)
 
@@ -436,7 +469,7 @@ with kpi3:
         <div class="metric-card">
             <div class="metric-title">Median Movie Runtime</div>
             <div class="metric-value">{median_runtime} <span style="font-size: 1.2rem; font-weight: 500;">min</span></div>
-            <div class="metric-sub">Sweet spot: 90–110 min window</div>
+            <div class="metric-sub">Typical range: 90–110 minutes</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -455,13 +488,21 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------------------------
 # Interactive Tabbed Structure
 # ---------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab_explore, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🔬 DataLab: Explore Dataset",
     "📈 Executive Strategy & Growth",
-    "🌍 Global Footprint & Ratings",
-    "🎭 Genre & Format Mechanics",
-    "🛠️ EDA Data Hygiene & Engineering Log",
-    "🤖 AI Recommender Engine"
+    "🌍 Global Distribution & Ratings",
+    "🎭 Genre & Format Analysis",
+    "🛠️ Data Quality & Pipeline Log",
+    "🤖 Content Recommendation Engine"
 ])
+
+
+# =========================================================
+# TAB: DATALAB INTERACTIVE DATASET EXPLORER (PHASE 1)
+# =========================================================
+with tab_explore:
+    render_explorer_tab(netflix_raw_df=raw_df)
 
 
 # =========================================================
@@ -470,28 +511,28 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     st.markdown("""
         <div class="insight-box">
-            <div class="insight-title">Executive Strategic Takeaway: The Great Studio Defense Pivot</div>
+            <div class="insight-title">Strategic Overview: Studio Licensing Transition</div>
             <div class="insight-body">
-                Between 2012 and 2016, Netflix operated primarily as a digital distributor for legacy Hollywood studios, 
-                relying heavily on <b>deep back-catalogs (licensing lag > 3 years)</b>. Anticipating that legacy studios 
-                (Disney, WarnerMedia, NBCUniversal) would claw back intellectual property to launch rival SVOD platforms 
-                (Disney+, HBO Max, Peacock), Netflix aggressively pivoted capital expenditure into <b>in-house Originals 
-                and same-year exclusive acquisitions (Lag = 0)</b>, while concurrently accelerating episodic TV production 
-                to maximize user retention and reduce subscriber churn.
+                Between 2012 and 2016, distribution strategy relied heavily on
+                <b>deep back-catalogs (licensing lag > 3 years)</b> from legacy studios.
+                In response to shifting studio licensing models and the rise of competitor platforms,
+                capital allocation shifted toward <b>in-house Originals and same-year exclusive
+                acquisitions (Lag = 0)</b>, paired with an increased volume of episodic television
+                to support subscriber engagement and retention.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("### Catalog Expansion Velocity")
+    st.markdown("### Catalog Growth Trends")
     growth_fig = plot_catalog_growth(filtered_df)
     st.plotly_chart(growth_fig, use_container_width=True)
 
-    st.markdown("### The Studio Defense Pivot (Originals vs. Licensed)")
+    st.markdown("### Licensing Strategy Evolution (Originals vs. Licensed)")
     lag_fig = plot_acquisition_lag_trend(filtered_df)
     st.plotly_chart(lag_fig, use_container_width=True)
 
     # Quantitative Breakdown Table
-    st.markdown("#### 📊 Annual Ingestion & Strategy Breakdown")
+    st.markdown("#### Annual Ingestion Breakdown")
     if "year_added" in filtered_df.columns:
         summary_table = (
             filtered_df.groupby("year_added")
@@ -526,30 +567,30 @@ with tab1:
 
 
 # =========================================================
-# TAB 2: GLOBAL FOOTPRINT & RATINGS
+# TAB 2: GLOBAL DISTRIBUTION & RATINGS
 # =========================================================
 with tab2:
     st.markdown("""
         <div class="insight-box">
-            <div class="insight-title">Global Expansion & Cultural Localization Dynamics</div>
+            <div class="insight-title">Strategic Overview: International Content Distribution</div>
             <div class="insight-body">
-                As domestic US streaming subscriber growth approached saturation, Netflix shifted into an aggressive 
-                multinational production model. Key production powerhouses like <b>India, the United Kingdom, and South Korea</b> 
-                demonstrate markedly different audience maturity distributions: mature content (TV-MA / R) dominates 
-                Western catalogs (US & UK), while markets like India feature substantially higher proportions of 
-                <b>Family / Teen programming (TV-14 / TV-PG)</b>, matching local viewing habits where multi-generational 
-                co-viewing is culturally prevalent.
+                To sustain subscriber growth beyond mature domestic markets, content development
+                expanded into key international production regions including <b>India, the United Kingdom,
+                and South Korea</b>. These markets exhibit distinct audience maturity profiles: mature
+                programming (TV-MA / R) forms a substantial portion of Western catalogs, while regions
+                such as India emphasize <b>Family and Teen programming (TV-14 / TV-PG)</b> aligned with
+                multi-generational co-viewing patterns.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
     # Top Countries Chart
-    st.markdown("### Top Production Powerhouses by Target Audience Tier")
+    st.markdown("### Top Producing Countries by Target Audience Tier")
     country_fig = plot_top_countries_audience(filtered_df, top_n=14)
     st.plotly_chart(country_fig, use_container_width=True)
 
     # Regional Drilldown Metrics
-    st.markdown("#### 🌐 Top Content Exporters Matrix")
+    st.markdown("#### Top Content Origin Matrix")
     exp_c = explode_column(filtered_df, "country")
     if not exp_c.empty:
         country_summary = (
@@ -585,46 +626,44 @@ with tab2:
 
 
 # =========================================================
-# TAB 3: GENRE & FORMAT MECHANICS
+# TAB 3: GENRE & FORMAT ANALYSIS
 # =========================================================
 with tab3:
     st.markdown("""
         <div class="insight-box">
-            <div class="insight-title">Format Economics: The 95-Minute Sweet Spot & The Season 2 Cliff</div>
+            <div class="insight-title">Format Analysis: Runtime Distribution & Season Retention</div>
             <div class="insight-body">
-                <b>1. The Feature Film Sweet Spot:</b> Movie runtimes cluster sharply between <b>90 and 110 minutes</b>. 
-                Streaming algorithms prioritize completion rate (percentage of users who finish a film) over total runtime; 
-                shorter films reduce drop-off, increase catalog rotation, and optimize digital ad insertion windows.<br>
-                <b>2. The Episodic 'Season 2 Cliff':</b> TV Shows experience a steep statistical cliff where 
-                <b>over 60% of series conclude after Season 1, and over 80% do not survive past Season 2</b>. 
-                Under Netflix's cost-plus compensation model, actor contracts and production budgets escalate exponentially 
-                after Season 2, while new subscriber acquisition per season declines rapidly unless the IP achieves global tentpole velocity.
+                <b>1. Feature Film Duration:</b> Movie runtimes cluster consistently between <b>90 and 110 minutes</b>,
+                balancing narrative completeness with viewer completion rates and programmatic scheduling efficiency.<br>
+                <b>2. Episodic Season Attrition:</b> Television series exhibit a pronounced drop-off rate, where
+                the majority of titles conclude within one to two seasons. Multi-season renewal decisions are heavily
+                driven by cumulative viewership metrics and cost-per-subscriber acquisition thresholds.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
     # Side-by-side distributions
-    st.markdown("### Runtime Optimization & Format Mechanics")
+    st.markdown("### Runtime & Season Distribution Analysis")
     dist_fig = plot_duration_distributions(filtered_df)
     st.plotly_chart(dist_fig, use_container_width=True)
 
     st.markdown("### Genre Co-Occurrence Matrix")
-    st.markdown("Discover which genres Netflix most frequently bundles together to target niche subscriber demographics.")
+    st.markdown("Analysis of paired genres across catalog titles.")
 
     heatmap_fig = plot_genre_cooccurrence(filtered_df, top_n=10)
     st.plotly_chart(heatmap_fig, use_container_width=True)
 
 
 # =========================================================
-# TAB 4: EDA DATA HYGIENE & ENGINEERING LOG
+# TAB 4: DATA QUALITY & PIPELINE LOG
 # =========================================================
 with tab4:
     st.markdown("""
         <div class="insight-box">
-            <div class="insight-title">Data Engineering & Hygiene Rigor</div>
+            <div class="insight-title">Data Pipeline Audit & Quality Assurance</div>
             <div class="insight-body">
-                Real-world exploratory data analysis requires proving that missing data patterns are thoroughly audited, 
-                statistically justified, and documented rather than silently discarded or naively filled with mean values.
+                Comprehensive data profiling ensures all missing fields, anomalies, and structural nulls
+                are methodically audited, verified, and documented prior to downstream analytics and reporting.
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -638,17 +677,16 @@ with tab4:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Missing Director Hypothesis Deep Dive
-    st.markdown("### The 'Missing Director' Hypothesis")
+    # Missing Director Field Analysis
+    st.markdown("### Missing Director Field Analysis")
     st.markdown(f"""
-        A common trap in novice EDA is assuming that null values in the `director` column are data collection errors.
-        Our hypothesis proves that **missing director data is structural to the medium of episodic television**:
-        
-        * **Movies Missing Director:** `{hygiene_report['director_hypothesis']['movie_missing_dir_pct']}%` 
+        Analysis of missing director entries reveals that missing values are largely structural to the format of episodic television rather than data collection discrepancies:
+
+        * **Movies Missing Director:** `{hygiene_report['director_hypothesis']['movie_missing_dir_pct']}%`
           ({hygiene_report['director_hypothesis']['movie_missing_dir']:,} of {hygiene_report['director_hypothesis']['movie_total']:,})
-        * **TV Shows Missing Director:** `{hygiene_report['director_hypothesis']['tv_missing_dir_pct']}%` 
+        * **TV Shows Missing Director:** `{hygiene_report['director_hypothesis']['tv_missing_dir_pct']}%`
           ({hygiene_report['director_hypothesis']['tv_missing_dir']:,} of {hygiene_report['director_hypothesis']['tv_total']:,})
-        
+
         {hygiene_report['director_hypothesis']['explanation']}
     """)
 
@@ -656,7 +694,7 @@ with tab4:
     st.plotly_chart(dir_fig, use_container_width=True)
 
     # Missing Value Audit Table Before vs After
-    st.markdown("#### 📋 Missing Value Audit Ledger (Before vs. After Pipeline)")
+    st.markdown("#### Missing Value Audit (Pre- vs. Post-Processing)")
     b_df = hygiene_report["missing_before_df"].rename(columns={
         "Missing_Count": "Raw_Missing_Count",
         "Missing_Pct": "Raw_Missing_%"
@@ -678,7 +716,7 @@ with tab4:
     st.dataframe(formatted_audit, use_container_width=True, hide_index=True)
 
     # Cleaned Dataset Inspector & Export
-    st.markdown("#### 🔍 Interactive Dataset Inspector & Export")
+    st.markdown("#### Dataset Preview and Export")
     col_exp1, col_exp2 = st.columns([3, 1])
     with col_exp1:
         preview_cols = [
@@ -695,7 +733,7 @@ with tab4:
         csv_buffer = io.StringIO()
         filtered_df.to_csv(csv_buffer, index=False)
         st.download_button(
-            label="📥 Download CSV",
+            label="Download CSV",
             data=csv_buffer.getvalue(),
             file_name="netflix_cleaned_and_engineered.csv",
             mime="text/csv"
@@ -703,28 +741,28 @@ with tab4:
 
 
 # =========================================================
-# TAB 5: AI RECOMMENDER ENGINE
+# TAB 5: CONTENT RECOMMENDATION ENGINE
 # =========================================================
 with tab5:
     st.markdown("""
         <div class="insight-box">
-            <div class="insight-title">Machine Learning NLP Recommender Engine</div>
+            <div class="insight-title">Content Similarity Recommendation Model</div>
             <div class="insight-body">
-                This content-based recommender transforms our <b>metadata soup</b> (synthesizing title, director, cast, 
-                curated genre tags, and synopses) into a high-dimensional vector space using 
-                <b>Scikit-Learn TF-IDF Vectorization (5,000 max features, English stop words)</b>. Pairwise 
-                <b>Cosine Similarity</b> scores are computed dynamically over the active catalog slice to discover 
-                the most mathematically and narratively adjacent titles.
+                This content-based recommender transforms title metadata (synthesizing title, director, cast,
+                curated genre tags, and synopses) into a high-dimensional vector space using
+                <b>Scikit-Learn TF-IDF Vectorization (5,000 max features, English stop words)</b>. Pairwise
+                <b>Cosine Similarity</b> scores are computed dynamically over the active catalog slice to discover
+                the most mathematically and thematically adjacent titles.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
     if filtered_df.empty:
-        st.warning("⚠️ No titles match your current sidebar filters. Please broaden your filter parameters to explore recommendations.")
+        st.warning("No titles match your current sidebar filters. Please expand your filter selections.")
     else:
         # User title search and selector
         available_titles = sorted(filtered_df["title"].dropna().unique().tolist())
-        
+
         # Select an engaging default title if present in filtered catalog
         default_idx = 0
         preferred_defaults = ["Shadows over Silence", "Stranger Things", "Inception", "Breaking Bad", "Return to Destiny"]
@@ -736,7 +774,7 @@ with tab5:
         select_col, info_col = st.columns([3, 1])
         with select_col:
             selected_title = st.selectbox(
-                "🎯 Select or Search a Movie / TV Show to Generate Recommendations:",
+                "Select or search a title to generate recommendations:",
                 options=available_titles,
                 index=default_idx,
                 help="Search from the currently filtered catalog titles to query the TF-IDF cosine similarity model."
@@ -744,9 +782,9 @@ with tab5:
 
         with info_col:
             st.markdown(f"""
-                <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 10px 14px; margin-top: 24px;">
-                    <div style="font-size: 0.75rem; color: #9CA3AF; text-transform: uppercase; font-weight: 600;">Active Model Corpus</div>
-                    <div style="font-size: 1.15rem; color: #FFFFFF; font-weight: 800;">{len(filtered_df):,} <span style="font-size: 0.8rem; font-weight: 500; color: #E50914;">Titles</span></div>
+                <div style="background: #FFFFFF; border: 1px solid #DEE2E6; border-radius: 8px; padding: 10px 14px; margin-top: 24px;">
+                    <div style="font-size: 0.75rem; color: #6C757D; text-transform: uppercase; font-weight: 600;">Active Model Corpus</div>
+                    <div style="font-size: 1.15rem; color: #2B3035; font-weight: 700;">{len(filtered_df):,} <span style="font-size: 0.8rem; font-weight: 500; color: #2C7BE5;">Titles</span></div>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -756,7 +794,7 @@ with tab5:
             if not target_matches.empty:
                 target_row = target_matches.iloc[0]
 
-                st.markdown("#### 🎬 Selected Title Spotlight")
+                st.markdown("#### Selected Title Profile")
                 t_year = int(target_row["release_year"]) if pd.notna(target_row.get("release_year")) else "N/A"
                 t_rating = str(target_row.get("rating", "NR"))
                 t_type = str(target_row.get("type", "Title"))
@@ -764,7 +802,7 @@ with tab5:
                 t_director = str(target_row.get("director", "Unlisted"))
                 t_cast = str(target_row.get("cast", "Unlisted"))
                 t_desc = str(target_row.get("description", "No description available."))
-                
+
                 t_duration = ""
                 if t_type == "Movie" and pd.notna(target_row.get("duration_min")):
                     t_duration = f" • {int(target_row['duration_min'])} min"
@@ -776,18 +814,18 @@ with tab5:
                     <div class="rec-card-target">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                <span class="rec-badge-rank" style="background: rgba(229, 9, 20, 0.4); border-color: #E50914;">QUERY TITLE</span>
+                                <span class="rec-badge-rank" style="background: #E7F1FF; color: #2C7BE5; border: 1px solid #B6D4FE;">QUERY TITLE</span>
                                 <span class="rec-title">{target_row['title']}</span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span class="rec-badge-format">{t_type}</span>
                                 <span class="rec-badge-rating">{t_rating}</span>
-                                <span style="color: #9CA3AF; font-size: 0.9rem; font-weight: 600;">{t_year}{t_duration}</span>
+                                <span style="color: #6C757D; font-size: 0.9rem; font-weight: 600;">{t_year}{t_duration}</span>
                             </div>
                         </div>
                         <div class="rec-meta-line">
-                            <b>Genres:</b> {t_genres} &nbsp;|&nbsp; 
-                            <b>Director:</b> {t_director} &nbsp;|&nbsp; 
+                            <b>Genres:</b> {t_genres} &nbsp;|&nbsp;
+                            <b>Director:</b> {t_director} &nbsp;|&nbsp;
                             <b>Cast:</b> {t_cast}
                         </div>
                         <div class="rec-desc">{t_desc}</div>
@@ -800,7 +838,7 @@ with tab5:
             # Retrieve Top 5 Recommendations
             recs = recommender.recommend(selected_title, top_n=5)
 
-            st.markdown(f"#### 🤖 Top 5 AI-Recommended Titles for *'{selected_title}'*")
+            st.markdown(f"#### Recommended Titles for *'{selected_title}'*")
 
             if recs.empty:
                 st.info("No similar titles found within the current filter slice. Try selecting another title or expanding your sidebar filters.")
@@ -815,7 +853,7 @@ with tab5:
                         r_genres = str(row.get("listed_in", "Uncategorized"))
                         r_director = str(row.get("director", "Unlisted"))
                         r_cast = str(row.get("cast", "Unlisted"))
-                        
+
                         r_duration = ""
                         if r_type == "Movie" and pd.notna(row.get("duration_min")):
                             r_duration = f" • {int(row['duration_min'])} min"
@@ -827,22 +865,21 @@ with tab5:
                             <div class="rec-card">
                                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                        <span class="rec-badge-rank">#{rank} MATCH</span>
+                                        <span class="rec-badge-rank">MATCH #{rank}</span>
                                         <span class="rec-title">{row['title']}</span>
                                     </div>
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span class="rec-badge-similarity">⚡ {sim_pct}% SIMILARITY</span>
+                                        <span class="rec-badge-similarity">{sim_pct}% MATCH</span>
                                         <span class="rec-badge-format">{r_type}</span>
                                         <span class="rec-badge-rating">{r_rating}</span>
-                                        <span style="color: #9CA3AF; font-size: 0.9rem; font-weight: 600;">{r_year}{r_duration}</span>
+                                        <span style="color: #6C757D; font-size: 0.9rem; font-weight: 600;">{r_year}{r_duration}</span>
                                     </div>
                                 </div>
                                 <div class="rec-meta-line">
-                                    <b>Genres:</b> {r_genres} &nbsp;|&nbsp; 
-                                    <b>Director:</b> {r_director} &nbsp;|&nbsp; 
+                                    <b>Genres:</b> {r_genres} &nbsp;|&nbsp;
+                                    <b>Director:</b> {r_director} &nbsp;|&nbsp;
                                     <b>Cast:</b> {r_cast}
                                 </div>
                                 <div class="rec-desc">{r_desc}</div>
                             </div>
                         """, unsafe_allow_html=True)
-
