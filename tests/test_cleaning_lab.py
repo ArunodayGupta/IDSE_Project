@@ -693,6 +693,34 @@ class TestDataLabCleaningLab(unittest.TestCase):
         self.assertEqual(len(diff["representative_changed_cells"]), 1)
         self.assertEqual(diff["representative_changed_cells"][0]["column"], "score")
 
+    def test_zero_row_working_dataset_preservation_regression_a1(self):
+        """Regression test A1: Preserve empty working dataset correctly.
+        When a cleaning operation drops all rows, the downstream manager and helper
+        recognize it as active with 0 rows, and NEVER silently fall back to the raw source."""
+        from src.cleaning_lab import get_datalab_working_dataset
+        import streamlit as st
+
+        # 1. Apply an operation that drops all rows
+        empty_mgr = WorkingDatasetManager(self.raw_df.copy(), source_name="Test Source", source_identity="src_test_id")
+        empty_mgr.apply_step({
+            "op_type": "drop_missing_rows",
+            "columns": ["all_null_col"],
+            "description": "Drop all rows having missing in all_null_col"
+        })
+        self.assertEqual(len(empty_mgr.working_df), 0)
+        self.assertEqual(len(empty_mgr.source_df), 8)  # Raw source remains immutable!
+
+        # 2. Simulate session state storage and call get_datalab_working_dataset()
+        st.session_state["cleaning_manager"] = empty_mgr
+        w_df, s_id, s_name, is_trans = get_datalab_working_dataset()
+
+        # 3. Assert downstream workspace receives the zero-row working copy, NOT the raw 8-row source!
+        self.assertIsNotNone(w_df)
+        self.assertEqual(len(w_df), 0)
+        self.assertTrue(is_trans)
+        self.assertEqual(s_id, "src_test_id")
+        self.assertTrue(empty_mgr.working_state_id.startswith("src_test_id__rev1"))
+
 
 if __name__ == "__main__":
     unittest.main()

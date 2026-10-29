@@ -1279,6 +1279,19 @@ class WorkingDatasetManager:
         self.history: List[Dict[str, Any]] = []
         self.audit_records: List[Dict[str, Any]] = []
         self.last_comparison: Optional[Dict[str, Any]] = None
+        self.revision: int = 0
+
+    @property
+    def working_state_id(self) -> str:
+        """
+        Deterministic, fast fingerprint of the working state that does not rehash
+        the entire DataFrame on every rerun. Accounts for source identity, revision,
+        schema, shape, and applied operation history.
+        """
+        cols_sig = "-".join(str(c) for c in self.working_df.columns)
+        hist_sig = "_".join(f"{h.get('op_type')}:{len(h.get('params', {}))}" for h in self.history[-5:])
+        shape_sig = f"{len(self.working_df)}x{len(self.working_df.columns)}"
+        return f"{self.source_identity}__rev{self.revision}__{shape_sig}__{abs(hash(cols_sig + hist_sig))}"
 
     def get_working_df(self) -> pd.DataFrame:
         """Returns the current working copy DataFrame."""
@@ -1352,6 +1365,7 @@ class WorkingDatasetManager:
         self.history.append(step_config)
         self.audit_records.append(comparison)
         self.last_comparison = comparison
+        self.revision += 1
         return comparison
 
     def undo_last_step(self) -> Optional[Dict[str, Any]]:
@@ -1372,6 +1386,7 @@ class WorkingDatasetManager:
 
         self.working_df = replayed_df
         self.last_comparison = self.audit_records[-1] if self.audit_records else None
+        self.revision += 1
         return removed_step
 
     def reset_to_source(self) -> pd.DataFrame:
@@ -1382,6 +1397,7 @@ class WorkingDatasetManager:
         self.history.clear()
         self.audit_records.clear()
         self.last_comparison = None
+        self.revision += 1
         return self.working_df
 
     def import_pipeline_json(
@@ -1486,25 +1502,37 @@ class WorkingDatasetManager:
         elif op_type in ("impute_missing", "impute_numeric"):
             strat = params.get("strategy", "mean")
             const_v = params["constant_value"] if "constant_value" in params else params.get("fill_value")
+            col = params.get("column")
+            if not col and params.get("columns"):
+                c = params.get("columns")
+                col = c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else str(c)
             return op_impute_missing(
                 df,
-                column=params.get("column", ""),
+                column=col or "",
                 strategy=strat,
                 constant_value=const_v,
                 treat_empty_as_missing=params.get("treat_empty_as_missing", True)
             )
         elif op_type == "impute_categorical_mode":
+            col = params.get("column")
+            if not col and params.get("columns"):
+                c = params.get("columns")
+                col = c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else str(c)
             return op_impute_missing(
                 df,
-                column=params.get("column", ""),
+                column=col or "",
                 strategy="mode",
                 treat_empty_as_missing=params.get("treat_empty_as_missing", True)
             )
         elif op_type == "fill_constant":
             const_v = params["fill_value"] if "fill_value" in params else params.get("constant_value")
+            col = params.get("column")
+            if not col and params.get("columns"):
+                c = params.get("columns")
+                col = c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else str(c)
             return op_impute_missing(
                 df,
-                column=params.get("column", ""),
+                column=col or "",
                 strategy="constant",
                 constant_value=const_v,
                 treat_empty_as_missing=params.get("treat_empty_as_missing", True)
@@ -1521,19 +1549,27 @@ class WorkingDatasetManager:
                 keep=keep_val
             )
         elif op_type == "convert_type":
+            col = params.get("column")
+            if not col and params.get("columns"):
+                c = params.get("columns")
+                col = c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else str(c)
             return op_convert_type(
                 df,
-                column=params.get("column", ""),
+                column=col or "",
                 target_type=params.get("target_type", "string"),
                 errors=params.get("errors", "coerce"),
                 datetime_format=params.get("datetime_format")
             )
         elif op_type == "normalize_text":
+            col = params.get("column")
+            if not col and params.get("columns"):
+                c = params.get("columns")
+                col = c[0] if isinstance(c, (list, tuple)) and len(c) > 0 else str(c)
             strip_w = params.get("strip_whitespace", True) if "strip_whitespace" in params else params.get("trim", True)
             c_style = params.get("case_style", "lower") if "case_style" in params else params.get("case", "lower")
             return op_normalize_text(
                 df,
-                column=params.get("column", ""),
+                column=col or "",
                 strip_whitespace=strip_w,
                 case_style=c_style
             )
@@ -1877,13 +1913,15 @@ def get_datalab_working_dataset() -> Tuple[Optional[pd.DataFrame], str, str, boo
     """
     Safely retrieves the active working copy DataFrame, source identity, source name,
     and a boolean indicating whether cleaning transformations have been applied.
+    Crucially distinguishes between an absent cleaning manager and an existing manager
+    whose working DataFrame contains zero rows (Defect A1).
     """
     try:
         import streamlit as st
         manager: Optional[WorkingDatasetManager] = (
             st.session_state.get("datalab_working_manager") or st.session_state.get("cleaning_manager")
         )
-        if manager is not None and not manager.working_df.empty:
+        if manager is not None:
             is_transformed = len(manager.history) > 0
             return manager.working_df, manager.source_identity, manager.source_name, is_transformed
         src_df = st.session_state.get("datalab_source_data")

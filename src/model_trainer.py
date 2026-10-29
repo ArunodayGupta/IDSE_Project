@@ -37,11 +37,20 @@ class ContentRecommender:
     def cosine_sim(self) -> Optional[np.ndarray]:
         """
         Backward-compatible property providing the full cosine similarity matrix
-        only on explicit demand, avoiding unnecessary N-by-N memory allocation.
+        only on explicit demand, avoiding unnecessary N-by-N memory allocation (Defect B5).
+        Guards against unbounded dense allocation for large datasets.
         """
         if self._cosine_sim is not None:
             return self._cosine_sim
         if self.is_fitted and self.tfidf_matrix is not None:
+            n_samples = self.tfidf_matrix.shape[0]
+            if n_samples > 10000 and not getattr(self, "allow_dense_similarity", False):
+                import warnings
+                warnings.warn(
+                    f"ContentRecommender.cosine_sim: Allocating dense {n_samples}x{n_samples} matrix "
+                    f"consumes {round((n_samples**2 * 8) / (1024**2), 1)} MB RAM. "
+                    "Use recommend() for memory-safe sparse on-demand dot product query similarity."
+                )
             self._cosine_sim = cosine_similarity(self.tfidf_matrix, self.tfidf_matrix)
             return self._cosine_sim
         return None

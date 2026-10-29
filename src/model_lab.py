@@ -22,6 +22,7 @@ import json
 import io
 import time
 import math
+import hashlib
 import numpy as np
 import pandas as pd
 from scipy.sparse import hstack, csr_matrix
@@ -55,6 +56,48 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 
 # =====================================================================
+# CONFIGURATION FINGERPRINTING & STATE AUDITING (DEFECT A3)
+# =====================================================================
+
+def compute_model_config_fingerprint(
+    dataset_identity: str,
+    target_col: str,
+    task_type: str,
+    feature_cols: List[str],
+    test_size: float = 0.2,
+    random_state: int = 42,
+    cv_folds: int = 0,
+    model_name: str = "baseline",
+    hyperparameters: Optional[Dict[str, Any]] = None,
+    preprocessing_config: Optional[Dict[str, Any]] = None,
+    modeling_rows: Optional[int] = None,
+    **kwargs: Any
+) -> str:
+    """
+    Computes a deterministic SHA-256 fingerprint for a predictive modeling configuration.
+    Any variation in dataset identity, target, features, split, seed, CV, model,
+    or hyperparameters produces a distinct fingerprint, preventing old metrics
+    from being associated with new selections (Defect A3).
+    """
+    effective_params = hyperparameters or kwargs.get("model_params") or {}
+    payload = {
+        "dataset_identity": str(dataset_identity),
+        "target_col": str(target_col),
+        "task_type": str(task_type),
+        "feature_cols": sorted(list(set(feature_cols))),
+        "test_size": round(float(test_size), 4),
+        "random_state": int(random_state),
+        "cv_folds": int(cv_folds),
+        "model_name": str(model_name),
+        "hyperparameters": {k: str(v) for k, v in sorted(effective_params.items())},
+        "preprocessing_config": {k: str(v) for k, v in sorted((preprocessing_config or {}).items())},
+        "modeling_rows": int(modeling_rows) if modeling_rows is not None else None,
+    }
+    raw = json.dumps(payload, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+# =====================================================================
 # SUPERVISED PREDICTIVE MODELING STUDIO
 # =====================================================================
 
@@ -84,15 +127,13 @@ def validate_modeling_inputs(
     task_type: str = "classification"
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
-    Validates modeling inputs:
-    - Target column presence and valid target values.
+    Validates modeling inputs with comprehensive safeguards:
+    - Target column presence and non-trivial target distribution.
     - Excludes target from features.
-    - Removes rows with missing target with visible count.
-    - Identifies numeric and categorical feature subsets.
-    - Excludes free-text columns with explanation.
-
-    Returns:
-        Cleaned modeling DataFrame and metadata dict.
+    - Removes rows with missing target with transparent reporting.
+    - Screens for all-null features and extreme categorical cardinality.
+    - Validates minimum row count (>= 5 rows).
+    - Checks classification target has >= 2 distinct classes (Defect A8).
     """
     if target_col not in df.columns:
         raise ValueError(f"Target column '{target_col}' not found in dataset.")
@@ -117,7 +158,16 @@ def validate_modeling_inputs(
     if clean_df.empty:
         raise ValueError(f"Target column '{target_col}' contains no valid rows after removing missing values.")
 
-    if task_type == "regression":
+    if len(clean_df) < 5:
+        raise ValueError(f"Dataset contains insufficient valid modeling rows ({len(clean_df)}). Reliable modeling requires at least 5 rows.")
+
+    warnings: List[str] = []
+
+    if task_type == "classification":
+        unique_classes = clean_df[target_col].dropna().unique()
+        if len(unique_classes) < 2:
+            raise ValueError(f"Classification target '{target_col}' contains only 1 distinct class ({unique_classes[0]}). Supervised classification requires at least 2 distinct classes.")
+    else:  # regression
         # Ensure target is convertible to numeric
         num_target = pd.to_numeric(clean_df[target_col], errors="coerce")
         invalid_target_mask = num_target.isna()
@@ -132,12 +182,31 @@ def validate_modeling_inputs(
         if clean_df.empty:
             raise ValueError(f"Regression target '{target_col}' contains no valid numeric values.")
 
-    # Feature type classification and free-text screening
+        if len(clean_df) < 5:
+            raise ValueError(f"Regression target '{target_col}' contains only {len(clean_df)} valid numeric rows (minimum 5 required).")
+
+    # Feature screening: all-null and free-text screening
+    all_null_features = []
+    screened_features = []
+    for c in valid_features:
+        s = clean_df[c]
+        if s.isna().all() or (pd.api.types.is_string_dtype(s) and (s.astype(str).str.strip() == "").all()):
+            all_null_features.append(c)
+        else:
+            screened_features.append(c)
+
+    if all_null_features:
+        warnings.append(f"Excluded {len(all_null_features)} feature(s) containing 100% missing values: {all_null_features}")
+
+    if not screened_features:
+        raise ValueError("All selected feature columns contain 100% missing values. Select at least one feature with non-missing data.")
+
     numeric_features = []
     categorical_features = []
     excluded_text_features = []
+    high_cardinality_features = []
 
-    for c in valid_features:
+    for c in screened_features:
         s = clean_df[c]
         if pd.api.types.is_numeric_dtype(s):
             numeric_features.append(c)
@@ -151,6 +220,10 @@ def validate_modeling_inputs(
                 excluded_text_features.append(c)
             else:
                 categorical_features.append(c)
+                nunique = non_null.nunique()
+                if nunique > 50:
+                    high_cardinality_features.append((c, nunique))
+                    warnings.append(f"Categorical feature '{c}' has high cardinality ({nunique} distinct categories). Memory-conscious encoding will limit to top categories to avoid memory explosion.")
 
     meta = {
         "original_rows": len(df),
@@ -161,19 +234,25 @@ def validate_modeling_inputs(
         "numeric_features": numeric_features,
         "categorical_features": categorical_features,
         "excluded_text_features": excluded_text_features,
+        "all_null_features": all_null_features,
+        "high_cardinality_features": high_cardinality_features,
         "usable_features": numeric_features + categorical_features,
+        "warnings": warnings,
     }
     return clean_df, meta
 
 
 def build_preprocessor(
     numeric_cols: List[str],
-    categorical_cols: List[str]
+    categorical_cols: List[str],
+    max_categories: int = 50
 ) -> ColumnTransformer:
     """
-    Constructs a Scikit-Learn ColumnTransformer pipeline.
+    Constructs a memory-conscious Scikit-Learn ColumnTransformer pipeline (Defect A4).
     Numeric: SimpleImputer(median) + StandardScaler.
-    Categorical: SimpleImputer(most_frequent) + OneHotEncoder(handle_unknown='ignore').
+    Categorical: SimpleImputer(most_frequent) + OneHotEncoder(sparse_output=True, handle_unknown='ignore', max_categories=50).
+    Employs sparse_threshold=1.0 to preserve sparse representations when categorical columns are present,
+    avoiding massive dense one-hot matrix expansion.
     """
     transformers = []
     if numeric_cols:
@@ -186,11 +265,11 @@ def build_preprocessor(
     if categorical_cols:
         cat_pipe = Pipeline([
             ("imputer", SimpleImputer(strategy="most_frequent")),
-            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=True, max_categories=max_categories)),
         ])
         transformers.append(("cat", cat_pipe, categorical_cols))
 
-    return ColumnTransformer(transformers=transformers, remainder="drop")
+    return ColumnTransformer(transformers=transformers, remainder="drop", sparse_threshold=1.0)
 
 
 def get_model_estimator(model_name: str, task_type: str, random_state: int = 42, **kwargs) -> Any:
@@ -236,11 +315,13 @@ def train_and_evaluate_model(
     categorical_cols: List[str],
     random_state: int = 42,
     cv_folds: int = 0,
+    dataset_identity: str = "dataset",
     **hyperparams
 ) -> Dict[str, Any]:
     """
     Fits preprocessing and estimator exclusively on the training partition,
     evaluates on the test partition, and computes comprehensive real metrics.
+    Includes configuration fingerprinting (Defect A3) and robust CV validation (Defect A8).
     """
     preprocessor = build_preprocessor(numeric_cols, categorical_cols)
     estimator = get_model_estimator(model_name, task_type, random_state=random_state, **hyperparams)
@@ -261,6 +342,7 @@ def train_and_evaluate_model(
 
     metrics: Dict[str, Any] = {}
     extra: Dict[str, Any] = {}
+    model_warnings: List[str] = []
 
     if task_type == "classification":
         acc = accuracy_score(y_test, y_pred)
@@ -319,25 +401,66 @@ def train_and_evaluate_model(
             "y_pred": y_pred.tolist(),
         }
 
-    # Cross-validation on training fold only if requested
+    # Cross-validation on training fold with explicit validation and actionable warnings (Defect A8)
     cv_mean = None
     cv_std = None
-    if cv_folds >= 2 and len(X_train) >= cv_folds * 2:
-        try:
-            scoring = "accuracy" if task_type == "classification" else "r2"
-            cv_strat = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state) if task_type == "classification" else KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
-            scores = cross_val_score(pipeline, X_train, y_train, cv=cv_strat, scoring=scoring)
-            cv_mean = round(float(scores.mean()), 4)
-            cv_std = round(float(scores.std()), 4)
-        except Exception:
-            cv_mean = None
-            cv_std = None
+    cv_warnings = []
+    if cv_folds >= 2:
+        if len(X_train) < cv_folds * 2:
+            cv_warn = f"Cross-validation skipped: Training partition has only {len(X_train)} samples, fewer than {cv_folds * 2} required for {cv_folds}-fold CV."
+            cv_warnings.append(cv_warn)
+            model_warnings.append(cv_warn)
+        else:
+            try:
+                scoring = "accuracy" if task_type == "classification" else "r2"
+                if task_type == "classification":
+                    min_class_count = int(y_train.value_counts().min())
+                    if min_class_count < cv_folds:
+                        cv_warn = f"Stratified CV requires each class to have >= {cv_folds} samples (rarest class has {min_class_count}). Evaluated using standard KFold without stratification."
+                        cv_warnings.append(cv_warn)
+                        model_warnings.append(cv_warn)
+                        cv_splitter = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+                    else:
+                        cv_splitter = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+                else:
+                    cv_splitter = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+
+                scores = cross_val_score(pipeline, X_train, y_train, cv=cv_splitter, scoring=scoring)
+                cv_mean = round(float(scores.mean()), 4)
+                cv_std = round(float(scores.std()), 4)
+            except Exception as e:
+                cv_mean = None
+                cv_std = None
+                cv_warn = f"Cross-validation execution failure: {str(e)}"
+                cv_warnings.append(cv_warn)
+                model_warnings.append(cv_warn)
 
     metrics["cv_mean"] = cv_mean
     metrics["cv_std"] = cv_std
+    if cv_warnings:
+        extra["cv_warnings"] = cv_warnings
 
     # Feature Importance extraction
     feature_importances = extract_feature_importances(pipeline, numeric_cols, categorical_cols)
+
+    # Compute configuration fingerprint (Defect A3)
+    total_modeling_rows = len(X_train) + len(X_test)
+    test_ratio = round(len(X_test) / total_modeling_rows, 4) if total_modeling_rows > 0 else 0.2
+    target_name = str(getattr(y_train, "name", "target") or "target")
+
+    config_fingerprint = compute_model_config_fingerprint(
+        dataset_identity=dataset_identity,
+        target_col=target_name,
+        task_type=task_type,
+        feature_cols=list(X_train.columns),
+        test_size=test_ratio,
+        random_state=random_state,
+        cv_folds=cv_folds,
+        model_name=model_name,
+        hyperparameters=hyperparams,
+        preprocessing_config={"max_categories": 50, "sparse": True},
+        modeling_rows=total_modeling_rows
+    )
 
     return {
         "model_name": model_name,
@@ -349,6 +472,13 @@ def train_and_evaluate_model(
         "extra": extra,
         "feature_importances": feature_importances,
         "y_pred": y_pred,
+        "config_fingerprint": config_fingerprint,
+        "dataset_identity": dataset_identity,
+        "test_size": test_ratio,
+        "random_state": random_state,
+        "cv_folds": cv_folds,
+        "warnings": model_warnings,
+        "modeling_rows": total_modeling_rows,
     }
 
 
@@ -502,21 +632,25 @@ class RecommenderArenaService:
                     continue  # Ablated / disabled field
 
                 corpus = self.df[field].fillna("").astype(str)
-                vec = TfidfVectorizer(
-                    max_features=self.max_features,
-                    stop_words=self.stop_words,
-                    ngram_range=self.ngram_range,
-                    min_df=self.min_df,
-                    max_df=self.max_df,
-                    sublinear_tf=self.sublinear_tf
-                )
-                mat = vec.fit_transform(corpus)
-                self.vectorizers[field] = vec
-                total_vocab += len(vec.vocabulary_)
-
-                # Apply weight
-                weighted_mat = mat.multiply(weight)
-                field_matrices.append(weighted_mat)
+                try:
+                    vec = TfidfVectorizer(
+                        max_features=self.max_features,
+                        stop_words=self.stop_words,
+                        ngram_range=self.ngram_range,
+                        min_df=self.min_df,
+                        max_df=self.max_df,
+                        sublinear_tf=self.sublinear_tf
+                    )
+                    mat = vec.fit_transform(corpus)
+                    if len(vec.vocabulary_) > 0:
+                        self.vectorizers[field] = vec
+                        total_vocab += len(vec.vocabulary_)
+                        # Apply weight
+                        weighted_mat = mat.multiply(weight)
+                        field_matrices.append(weighted_mat)
+                except Exception:
+                    # Ignore empty vocabularies or invalid text safely (Defect A6)
+                    continue
 
         if field_matrices:
             raw_combined = hstack(field_matrices, format="csr")
@@ -642,13 +776,23 @@ def compute_relevance_feedback_metrics(
     judgments: Dict[str, int]
 ) -> Dict[str, Any]:
     """
-    Computes honest ranking evaluation metrics on user relevance feedback:
-    judged Precision@K and NDCG@K based exclusively on judged items.
-    Discloses total, judged, and unjudged counts honestly without fabricated ground truth.
+    Computes truthful ranking evaluation metrics on user relevance feedback (Defect A6):
+    - Truthful label: Relevance rate among judged recommendations with explicit denominator.
+    - Partial-judgment NDCG@K documented explicitly without claiming complete ground truth.
+    - Discloses total returned, judged count, and unjudged count honestly.
     """
     total_returned = len(recommended_titles)
     if total_returned == 0:
-        return {"judged_count": 0, "unjudged_count": 0, "precision_at_k": 0.0, "ndcg_at_k": 0.0}
+        return {
+            "total_returned": 0,
+            "judged_count": 0,
+            "unjudged_count": 0,
+            "precision_at_k": 0.0,
+            "relevance_rate_among_judged": 0.0,
+            "relevance_rate_denominator": "0 / 0",
+            "ndcg_at_k": 0.0,
+            "disclosure": "No recommendations returned."
+        }
 
     judged_items = [t for t in recommended_titles if t in judgments]
     judged_count = len(judged_items)
@@ -660,15 +804,20 @@ def compute_relevance_feedback_metrics(
             "judged_count": 0,
             "unjudged_count": total_returned,
             "precision_at_k": None,
+            "relevance_rate_among_judged": None,
+            "relevance_rate_denominator": f"0 / {total_returned} judged",
             "ndcg_at_k": None,
             "disclosure": "No items have been judged by the user yet. Metrics are pending user relevance feedback."
         }
 
-    # Judged Precision@K = (judged relevant) / (total judged items)
     relevant_count = sum(1 for t in judged_items if judgments.get(t, 0) == 1)
-    precision_at_k = round((relevant_count / judged_count * 100), 2)
+    relevance_rate = round((relevant_count / judged_count * 100), 2)
+    relevance_denom = f"{relevant_count} / {judged_count} judged"
 
-    # NDCG@K on judged items
+    # Conventional Precision@K across all K (unjudged considered unconfirmed/non-relevant)
+    conventional_precision_at_k = round((relevant_count / total_returned * 100), 2)
+
+    # Partial-judgment NDCG@K on judged items
     dcg = 0.0
     for idx, t in enumerate(recommended_titles, 1):
         if t in judgments:
@@ -684,22 +833,82 @@ def compute_relevance_feedback_metrics(
         "judged_count": judged_count,
         "unjudged_count": unjudged_count,
         "judged_relevant_count": relevant_count,
-        "precision_at_k": precision_at_k,
+        "relevance_rate_among_judged": relevance_rate,
+        "relevance_rate_denominator": relevance_denom,
+        "precision_at_k": relevance_rate,  # Retained for backwards compatibility with tests
+        "conventional_precision_at_k": conventional_precision_at_k,
+        "precision_at_k_label": f"Relevance rate among judged ({relevance_denom})",
         "ndcg_at_k": ndcg,
+        "ndcg_method": "Partial-judgment NDCG@K (evaluates relative ranking among judged items; unjudged items omitted from DCG and IDCG)",
+        "is_complete_judgment": (unjudged_count == 0),
         "disclosure": f"{judged_count} of {total_returned} returned titles evaluated by user. Note: Unjudged items are not assumed irrelevant.",
     }
 
 
 # =====================================================================
-# EXPERIMENT EXPORT & REPLAY HUBS
+# EXPERIMENT EXPORT & REPLAY HUBS (DEFECT A5)
 # =====================================================================
 
 def export_model_experiment_json(experiment: Dict[str, Any]) -> str:
-    """Exports a supervised model experiment configuration and metrics as JSON."""
-    exportable = {k: v for k, v in experiment.items() if k not in ("fitted_pipeline", "y_pred")}
+    """
+    Exports a validated, versioned JSON schema of a supervised model experiment (Defect A5).
+    Retains all dataset, preprocessing, hyperparameter, and metric values required for reproducibility.
+    """
+    exportable = {
+        "schema_version": "1.0.0",
+        "experiment_type": "supervised_predictive",
+        "experiment_id": experiment.get("experiment_id", f"exp_{int(time.time())}"),
+        "timestamp": experiment.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
+        "dataset_identity": experiment.get("dataset_identity", "unknown"),
+        "dataset_name": experiment.get("dataset_name", "dataset"),
+        "source_mode": experiment.get("source_mode", "raw"),
+        "task_type": experiment.get("task_type", "classification"),
+        "target_col": experiment.get("target_col", ""),
+        "selected_features": experiment.get("selected_features", []),
+        "test_size": experiment.get("test_size", 0.2),
+        "random_state": experiment.get("random_state", 42),
+        "cv_folds": experiment.get("cv_folds", 0),
+        "preprocessing_config": experiment.get("preprocessing_config", {"max_categories": 50, "sparse": True}),
+        "model_name": experiment.get("model_name", "baseline"),
+        "hyperparameters": experiment.get("hyperparameters", {}),
+        "metrics": experiment.get("metrics", {}),
+        "fit_duration_sec": experiment.get("fit_duration_sec", 0.0),
+        "predict_duration_sec": experiment.get("predict_duration_sec", 0.0),
+        "warnings": experiment.get("warnings", []),
+        "excluded_features": experiment.get("excluded_features", []),
+        "modeling_rows": experiment.get("modeling_rows", 0),
+        "config_fingerprint": experiment.get("config_fingerprint", ""),
+    }
     return json.dumps(exportable, indent=2, default=str)
 
 
 def export_recommender_experiment_json(experiment: Dict[str, Any]) -> str:
-    """Exports a recommender experiment configuration as JSON."""
-    return json.dumps(experiment, indent=2, default=str)
+    """
+    Exports a validated, versioned JSON schema of a recommender experiment (Defect A5).
+    """
+    exportable = {
+        "schema_version": "1.0.0",
+        "experiment_type": "recommender_arena",
+        "experiment_id": experiment.get("experiment_id", f"exp_rec_{int(time.time())}"),
+        "timestamp": experiment.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
+        "dataset_identity": experiment.get("dataset_identity", "unknown"),
+        "title_col": experiment.get("title_col", "title"),
+        "query_title": experiment.get("query_title", ""),
+        "text_fields": experiment.get("text_fields", []),
+        "field_weights": experiment.get("field_weights", {}),
+        "tfidf_params": experiment.get("tfidf_params", {
+            "max_features": experiment.get("max_features", 3000),
+            "stop_words": experiment.get("stop_words", "english"),
+            "ngram_range": experiment.get("ngram_range", (1, 1)),
+            "min_df": experiment.get("min_df", 1),
+            "max_df": experiment.get("max_df", 1.0),
+            "sublinear_tf": experiment.get("sublinear_tf", False),
+        }),
+        "top_k": experiment.get("top_k", 5),
+        "fit_duration_sec": experiment.get("fit_duration_sec", 0.0),
+        "query_duration_sec": experiment.get("query_duration_sec", 0.0),
+        "ranked_results": experiment.get("ranked_results", []),
+        "relevance_judgments": experiment.get("relevance_judgments", {}),
+        "relevance_metrics": experiment.get("relevance_metrics", {}),
+    }
+    return json.dumps(exportable, indent=2, default=str)

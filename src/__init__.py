@@ -35,7 +35,6 @@ from .data_explorer import (
     export_filtered_csv,
     export_profile_csv,
 )
-from .explorer_ui import render_explorer_tab
 from .cleaning_lab import (
     WorkingDatasetManager,
     generate_data_quality_audit,
@@ -43,8 +42,8 @@ from .cleaning_lab import (
     apply_cleaning_operation,
     export_working_csv,
     export_cleaning_report,
+    get_datalab_working_dataset,
 )
-from .cleaning_lab_ui import render_cleaning_lab_tab
 from .model_lab import (
     detect_suggested_task,
     validate_modeling_inputs,
@@ -53,8 +52,49 @@ from .model_lab import (
     extract_feature_importances,
     compute_error_analysis,
     RecommenderArenaService,
+    compute_model_config_fingerprint,
+    compute_relevance_feedback_metrics,
+    export_model_experiment_json,
+    export_recommender_experiment_json,
 )
-from .model_lab_ui import render_model_lab_tab
+from .operation_registry import (
+    OPERATION_REGISTRY,
+    get_operation,
+    list_operations_by_category,
+)
+from .workflow_engine import (
+    WorkflowStep,
+    WorkflowPipeline,
+    create_starter_workflow,
+    list_starter_workflows,
+)
+from .missions import (
+    MISSION_REGISTRY,
+    get_mission,
+    list_missions,
+)
+from .data_context import (
+    get_active_dataset_context,
+    resolve_modeling_dataset,
+    register_working_dataset_manager,
+)
+
+# Lazy loader for UI rendering functions to avoid importing Streamlit when doing pure data operations
+_UI_EXPORTS = {
+    "render_explorer_tab": ("src.explorer_ui", "render_explorer_tab"),
+    "render_cleaning_lab_tab": ("src.cleaning_lab_ui", "render_cleaning_lab_tab"),
+    "render_workflow_studio_tab": ("src.workflow_ui", "render_workflow_studio_tab"),
+    "render_model_lab_tab": ("src.model_lab_ui", "render_model_lab_tab"),
+    "render_missions_tab": ("src.missions_ui", "render_missions_tab"),
+}
+
+def __getattr__(name: str):
+    if name in _UI_EXPORTS:
+        mod_name, func_name = _UI_EXPORTS[name]
+        import importlib
+        module = importlib.import_module(mod_name)
+        return getattr(module, func_name)
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 __all__ = [
     "ensure_data_exists",
@@ -86,14 +126,13 @@ __all__ = [
     "paginate_dataframe",
     "export_filtered_csv",
     "export_profile_csv",
-    "render_explorer_tab",
     "WorkingDatasetManager",
     "generate_data_quality_audit",
     "compute_what_changed",
     "apply_cleaning_operation",
     "export_working_csv",
     "export_cleaning_report",
-    "render_cleaning_lab_tab",
+    "get_datalab_working_dataset",
     "detect_suggested_task",
     "validate_modeling_inputs",
     "build_preprocessor",
@@ -101,5 +140,26 @@ __all__ = [
     "extract_feature_importances",
     "compute_error_analysis",
     "RecommenderArenaService",
+    "compute_model_config_fingerprint",
+    "compute_relevance_feedback_metrics",
+    "export_model_experiment_json",
+    "export_recommender_experiment_json",
+    "OPERATION_REGISTRY",
+    "get_operation",
+    "list_operations_by_category",
+    "WorkflowStep",
+    "WorkflowPipeline",
+    "create_starter_workflow",
+    "list_starter_workflows",
+    "MISSION_REGISTRY",
+    "get_mission",
+    "list_missions",
+    "get_active_dataset_context",
+    "resolve_modeling_dataset",
+    "register_working_dataset_manager",
+    "render_explorer_tab",
+    "render_cleaning_lab_tab",
+    "render_workflow_studio_tab",
     "render_model_lab_tab",
+    "render_missions_tab",
 ]

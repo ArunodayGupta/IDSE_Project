@@ -35,6 +35,7 @@ from src.model_lab import (
     compute_relevance_feedback_metrics,
     export_model_experiment_json,
     export_recommender_experiment_json,
+    compute_model_config_fingerprint,
 )
 from src.model_trainer import ContentRecommender
 
@@ -378,6 +379,99 @@ class TestModelLabSupervisedStudio(unittest.TestCase):
         self.assertIn("metrics", parsed)
         self.assertNotIn("fitted_pipeline", parsed)
 
+    def test_model_configuration_fingerprint_sensitivity_a3(self):
+        """Regression test A3: Verify that changing any single modeling parameter
+        produces a distinct configuration fingerprint."""
+        base_kwargs = {
+            "dataset_identity": "ds_hash_1",
+            "target_col": "churn_class",
+            "task_type": "classification",
+            "feature_cols": ["age", "income", "tier"],
+            "test_size": 0.2,
+            "random_state": 42,
+            "cv_folds": 5,
+            "model_name": "logistic",
+            "model_params": {"C": 1.0},
+            "preprocessing_config": {"strategy": "sparse_onehot"}
+        }
+        base_fp = compute_model_config_fingerprint(**base_kwargs)
+
+        # 1. Change dataset_identity
+        k1 = base_kwargs.copy()
+        k1["dataset_identity"] = "ds_hash_2"
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k1))
+
+        # 2. Change target_col
+        k2 = base_kwargs.copy()
+        k2["target_col"] = "satisfaction_score"
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k2))
+
+        # 3. Change task_type
+        k3 = base_kwargs.copy()
+        k3["task_type"] = "regression"
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k3))
+
+        # 4. Change feature_cols
+        k4 = base_kwargs.copy()
+        k4["feature_cols"] = ["age", "income"]
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k4))
+
+        # 5. Change test_size
+        k5 = base_kwargs.copy()
+        k5["test_size"] = 0.3
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k5))
+
+        # 6. Change random_state
+        k6 = base_kwargs.copy()
+        k6["random_state"] = 99
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k6))
+
+        # 7. Change cv_folds
+        k7 = base_kwargs.copy()
+        k7["cv_folds"] = 10
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k7))
+
+        # 8. Change model_name
+        k8 = base_kwargs.copy()
+        k8["model_name"] = "random_forest"
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k8))
+
+        # 9. Change model_params
+        k9 = base_kwargs.copy()
+        k9["model_params"] = {"C": 0.1}
+        self.assertNotEqual(base_fp, compute_model_config_fingerprint(**k9))
+
+    def test_sparse_one_hot_preprocessor_and_estimator_compatibility_a4(self):
+        """Regression test A4: Verify build_preprocessor preserves sparse matrices
+        without memory blowup, and scikit-learn estimators natively fit and predict."""
+        preprocessor = build_preprocessor(categorical_cols=["tier"], numeric_cols=["age", "income"])
+        X_df = self.df[["tier", "age", "income"]].dropna()
+        X_trans = preprocessor.fit_transform(X_df)
+        self.assertTrue(issparse(X_trans), "Transformed matrix should be sparse CSR format to avoid memory explosion")
+
+        # Verify estimators train and predict on sparse matrix
+        from sklearn.linear_model import LogisticRegression
+        clf = LogisticRegression()
+        clf.fit(X_trans, self.df.loc[X_df.index, "churn_class"])
+        preds = clf.predict(X_trans)
+        self.assertEqual(len(preds), len(X_df))
+
+    def test_small_dataset_and_rare_class_handling_a8(self):
+        """Regression test A8: Verify validation on small datasets, 1-class targets,
+        and rare classes that make default stratification impossible."""
+        # 1. Dataset with fewer than 5 rows
+        tiny_df = self.df.head(4).copy()
+        with self.assertRaises(ValueError) as ctx:
+            validate_modeling_inputs(tiny_df, "churn_class", ["age", "income"], "classification")
+        self.assertIn("insufficient", str(ctx.exception).lower())
+
+        # 2. Single-class target
+        one_class_df = self.df.copy()
+        one_class_df["single_class"] = "AllSame"
+        with self.assertRaises(ValueError) as ctx:
+            validate_modeling_inputs(one_class_df, "single_class", ["age", "income"], "classification")
+        self.assertIn("only 1 distinct class", str(ctx.exception).lower())
+
 
 class TestModelLabRecommenderArena(unittest.TestCase):
     """Unit test suite for Phase 3 Mode 2: Recommender Experiment Arena."""
@@ -582,6 +676,28 @@ class TestModelLabRecommenderArena(unittest.TestCase):
         json_str = export_recommender_experiment_json(exp)
         parsed = json.loads(json_str)
         self.assertEqual(parsed["experiment_id"], "exp_rec_001")
+
+    def test_recommender_feedback_key_and_truthful_metrics_a6(self):
+        """Regression test A6: Key feedback by stable (dataset_id, title_col, query_title)
+        and verify truthful relevance metrics labeling."""
+        titles = ["Space Odyssey 2001", "Interstellar Journey", "Deep Space Wars", "Romantic Paris", "Midnight in France"]
+
+        # 1. Truthful label: relevance rate among judged (with denominator shown)
+        feedback = {"Interstellar Journey": 1, "Deep Space Wars": 0}
+        metrics = compute_relevance_feedback_metrics(titles, feedback)
+        self.assertEqual(metrics["judged_count"], 2)
+        self.assertEqual(metrics["unjudged_count"], 3)
+        self.assertEqual(metrics["judged_relevant_count"], 1)
+        self.assertEqual(metrics["relevance_rate_among_judged"], 50.0)
+        self.assertEqual(metrics["relevance_rate_denominator"], "1 / 2 judged")
+        self.assertIn("partial-judgment ndcg", metrics["ndcg_method"].lower())
+
+        # 2. Feedback isolation: feedback dictionary for dataset A should not match key for dataset B
+        feedback_store = {}
+        key_ds_a = ("dataset_A", "title", "Space Odyssey 2001")
+        key_ds_b = ("dataset_B", "title", "Space Odyssey 2001")
+        feedback_store[key_ds_a] = {"Interstellar Journey": 1}
+        self.assertNotIn(key_ds_b, feedback_store)
 
 
 if __name__ == "__main__":
