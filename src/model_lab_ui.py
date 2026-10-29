@@ -8,29 +8,22 @@ Consolidates:
 4. Experiment Tracker & Export Hub (Reliable session tracking, deletion, deduplication, versioned JSON/CSV export).
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional
 import io
 import json
-import time
-import streamlit as pd_st
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 
 from .data_context import (
     get_source_dataset,
     get_working_dataset,
-    compute_modeling_dataset_identity,
-    is_result_stale,
 )
 from .model_lab import (
     detect_suggested_task,
     validate_modeling_inputs,
-    build_preprocessor,
     train_and_evaluate_model,
-    extract_feature_importances,
     compute_error_analysis,
     compute_model_config_fingerprint,
     RecommenderArenaService,
@@ -40,18 +33,7 @@ from .model_lab import (
     export_recommender_experiment_json,
 )
 from .model_trainer import ContentRecommender
-from src.ui_theme import (
-    render_page_header,
-    render_kpi_row,
-    render_callout,
-    render_badge,
-    apply_figure_theme,
-    COLOR_CYAN,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_DANGER,
-    COLOR_VIOLET
-)
+from src.ui_theme import render_page_header
 
 
 def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
@@ -83,11 +65,11 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             working_state_id = "netflix_catalog__initial"
 
     if source_df is None:
-        st.warning("⚠️ No dataset currently loaded. Please select or upload a dataset in **DataLab Explore**.")
+        st.warning(" No dataset currently loaded. Please select or upload a dataset in **DataLab Explore**.")
         return
 
     # Dataset Source Selector
-    st.markdown("##### 📁 Input Dataset Selection")
+    st.markdown("##### Input Dataset Selection")
     sel_col1, sel_col2 = st.columns([2, 3])
     with sel_col1:
         data_choice = st.radio(
@@ -111,36 +93,36 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
     with sel_col2:
         if is_active_empty:
-            status_label = "⚠️ Empty (0 rows × 0 cols)"
-            st.error(f"**Active Modeling Data:** `{source_name}` — **{status_label}** (ID: `{active_dataset_id[:24]}...`)")
+            status_label = " Empty (0 rows × 0 cols)"
+            st.error(f"**Active Modeling Data:** `{source_name}`  **{status_label}** (ID: `{active_dataset_id[:24]}...`)")
         else:
-            status_label = f"✨ Transformed ({len(active_df):,} rows × {active_df.shape[1]} cols)" if (is_working_selected and is_transformed) else f"📄 Raw Source ({len(active_df):,} rows × {active_df.shape[1]} cols)"
-            st.info(f"**Active Modeling Data:** `{source_name}` — **{status_label}** (ID: `{active_dataset_id[:24]}...`)")
+            status_label = f" Transformed ({len(active_df):,} rows × {active_df.shape[1]} cols)" if (is_working_selected and is_transformed) else f" Raw Source ({len(active_df):,} rows × {active_df.shape[1]} cols)"
+            st.info(f"**Active Modeling Data:** `{source_name}`  **{status_label}** (ID: `{active_dataset_id[:24]}...`)")
 
     # Stale experiment detection across dataset identity changes (Defect A2)
     last_trained_id = st.session_state.get("model_lab_active_dataset_id")
     dataset_has_changed = (last_trained_id is not None and last_trained_id != active_dataset_id)
     if dataset_has_changed:
-        st.warning(f"⚠️ **Dataset State Changed:** The active modeling dataset has changed (previous: `{str(last_trained_id)[:20]}...`, active: `{active_dataset_id[:20]}...`). Prior experiment results are preserved below but marked as historical.")
+        st.warning(f"**Dataset State Changed:** The active modeling dataset has changed (previous: `{str(last_trained_id)[:20]}...`, active: `{active_dataset_id[:20]}...`). Prior experiment results are preserved below but marked as historical.")
 
     if is_active_empty:
-        st.warning("⚠️ **Active Working Dataset is Empty:** A prior cleaning or filtering operation has removed all rows. Downstream modeling and recommendation actions are disabled until data is restored in **Clean & Transform**.")
+        st.warning("**Active Working Dataset is Empty:** A prior cleaning or filtering operation has removed all rows. Downstream modeling and recommendation actions are disabled until data is restored in **Clean & Transform**.")
 
     st.markdown("---")
 
     # Primary Modes Subtabs (Consolidating Quick Netflix Recommendations - Defect B1)
     ml_tab1, ml_tab2, ml_tab3, ml_tab4 = st.tabs([
-        "🎯 Mode 1: Predictive Modeling Studio",
-        "🔍 Mode 2: Recommender Experiment Arena",
-        "⚡ Mode 3: Quick Netflix Recommendations",
-        "📋 Experiment Tracker & Export Hub",
+        "Mode 1: Predictive Modeling Studio",
+        "Mode 2: Recommender Experiment Arena",
+        "Mode 3: Quick Netflix Recommendations",
+        "Experiment Tracker & Export Hub",
     ])
 
     # ==================================================================
     # MODE 1: PREDICTIVE MODELING STUDIO
     # ==================================================================
     with ml_tab1:
-        st.markdown("### 🎯 Predictive Modeling Studio")
+        st.markdown("### Predictive Modeling Studio")
         st.caption("Train supervised classification and regression pipelines on structured tabular features. Evaluates estimators on identical held-out test splits without data leakage.")
 
         if is_active_empty:
@@ -149,7 +131,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             p_cfg_col, p_res_col = st.columns([1, 2])
 
             with p_cfg_col:
-                st.markdown("##### ⚙️ Task & Features")
+                st.markdown("##### Task & Features")
 
                 # Target Column Selection
                 all_cols = list(active_df.columns)
@@ -184,7 +166,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 seed_val = st.number_input("Random Seed:", value=42, step=1)
                 cv_folds = st.selectbox("Cross-Validation Folds (on train partition):", options=[0, 3, 5], index=1)
 
-                st.markdown("##### 🤖 Candidate Models")
+                st.markdown("##### Candidate Models")
                 if task_type == "classification":
                     run_baseline = st.checkbox("Baseline (Dummy Majority Class)", value=True)
                     run_linear = st.checkbox("Logistic Regression", value=True)
@@ -199,7 +181,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 tree_max_depth = st.slider("Tree / Forest Max Depth:", min_value=2, max_value=15, value=5)
                 rf_n_estimators = st.slider("Random Forest Trees:", min_value=20, max_value=150, value=50, step=10)
 
-                train_btn = st.button("🚀 Train & Compare Models", type="primary", use_container_width=True, disabled=is_active_empty)
+                train_btn = st.button("Train & Compare Models", type="primary", use_container_width=True, disabled=is_active_empty)
 
             with p_res_col:
                 if train_btn:
@@ -216,13 +198,13 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                                 )
 
                                 for warn_msg in meta.get("warnings", []):
-                                    st.warning(f"⚠️ {warn_msg}")
+                                    st.warning(f" {warn_msg}")
 
                                 if meta["excluded_text_features"]:
-                                    st.info(f"ℹ️ **Text Columns Excluded:** `{', '.join(meta['excluded_text_features'])}` were excluded from tabular modeling. Use **Mode 2: Recommender Arena** for NLP metadata.")
+                                    st.info(f"**Text Columns Excluded:** `{', '.join(meta['excluded_text_features'])}` were excluded from tabular modeling. Use **Mode 2: Recommender Arena** for NLP metadata.")
 
                                 if meta["excluded_target_missing"] > 0:
-                                    st.warning(f"⚠️ Excluded **{meta['excluded_target_missing']:,}** records with missing or invalid target values.")
+                                    st.warning(f" Excluded **{meta['excluded_target_missing']:,}** records with missing or invalid target values.")
 
                                 # Split data with rare-class safeguard (Defect A8)
                                 X = modeling_df[meta["usable_features"]]
@@ -234,7 +216,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                                     if (class_counts >= 2).all() and len(y) * split_ratio >= len(class_counts):
                                         stratify_y = y
                                     else:
-                                        st.caption("ℹ️ Stratification omitted: class frequencies or test split size are incompatible with stratified sampling.")
+                                        st.caption(" Stratification omitted: class frequencies or test split size are incompatible with stratified sampling.")
 
                                 from sklearn.model_selection import train_test_split
                                 X_train, X_test, y_train, y_test = train_test_split(
@@ -318,11 +300,11 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     is_config_stale = (last_saved_fp is not None and last_saved_fp != active_fp)
 
                     if dataset_has_changed:
-                        st.warning("⚠️ **Historical Results (Dataset Changed):** These results were produced on a prior version of the dataset. Run a new training cycle to update metrics.")
+                        st.warning("**Historical Results (Dataset Changed):** These results were produced on a prior version of the dataset. Run a new training cycle to update metrics.")
                     elif is_config_stale:
-                        st.warning("🕒 **Historical Results (Configuration Changed):** Current target, features, split, or hyperparameter selections have changed since this run. Click 'Train & Compare Models' to compute metrics for your newly selected settings.")
+                        st.warning("**Historical Results (Configuration Changed):** Current target, features, split, or hyperparameter selections have changed since this run. Click 'Train & Compare Models' to compute metrics for your newly selected settings.")
 
-                    st.markdown("#### 📊 Model Evaluation & Comparison Table")
+                    st.markdown("#### Model Evaluation & Comparison Table")
                     comp_rows = []
                     for r in stored_results:
                         row = {
@@ -350,7 +332,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
                     # Drill-Down Analysis for Top Performing Model
                     st.markdown("---")
-                    st.markdown("#### 🔬 Detailed Inspection & Error Analysis")
+                    st.markdown("#### Detailed Inspection & Error Analysis")
                     model_options = [r["model_name"] for r in stored_results]
                     selected_model_name = st.selectbox("Inspect Fitted Model:", options=model_options)
                     chosen_res = next((r for r in stored_results if r["model_name"] == selected_model_name), stored_results[0])
@@ -398,7 +380,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                             )
                             fig_imp.update_layout(yaxis=dict(autorange="reversed"), height=320, margin=dict(l=10, r=10, t=30, b=10))
                             st.plotly_chart(fig_imp, use_container_width=True)
-                            st.caption("ℹ️ *Note: Feature importance represents statistical association within the fitted estimator, not proof of causation.*")
+                            st.caption(" *Note: Feature importance represents statistical association within the fitted estimator, not proof of causation.*")
                         else:
                             st.info("Feature importance not applicable for this baseline estimator.")
 
@@ -406,7 +388,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     test_tup = st.session_state.get("model_lab_test_data")
                     if test_tup:
                         X_test_ref, y_test_ref, raw_test_ref = test_tup
-                        st.markdown("##### 🔎 Top Model Errors (Test Set Inspection)")
+                        st.markdown("##### Top Model Errors (Test Set Inspection)")
                         err_df = compute_error_analysis(
                             chosen_res["fitted_pipeline"],
                             X_test_ref,
@@ -418,7 +400,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         st.dataframe(err_df, use_container_width=True)
 
                     # Save Experiment Button with deduplication (Defect A7)
-                    if st.button("💾 Save Experiment Run to History", key="btn_save_model_exp"):
+                    if st.button("Save Experiment Run to History", key="btn_save_model_exp"):
                         saved_list = st.session_state.setdefault("model_lab_saved_experiments", [])
                         new_id = f"EXP_{len(saved_list)+1:03d}"
                         saved_entry = {
@@ -451,7 +433,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # MODE 2: RECOMMENDER EXPERIMENT ARENA
     # ==================================================================
     with ml_tab2:
-        st.markdown("### 🔍 Recommender Experiment Arena")
+        st.markdown("### Recommender Experiment Arena")
         st.caption("Investigate how altering NLP text representations, field weights, and vocabulary thresholds affects content-based recommendations. Employs on-demand sparse similarity without memory-intensive full matrix allocations.")
 
         if is_active_empty:
@@ -460,7 +442,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             r_cfg_col, r_res_col = st.columns([1, 2])
 
             with r_cfg_col:
-                st.markdown("##### ⚙️ Representation Settings")
+                st.markdown("##### Representation Settings")
 
                 all_cols = list(active_df.columns)
                 title_col = st.selectbox(
@@ -485,7 +467,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     key="ms_rec_text_fields"
                 )
 
-                st.markdown("##### ⚖️ Field Weights & Ablation")
+                st.markdown("##### Field Weights & Ablation")
                 field_weights = {}
                 for f in selected_text_fields:
                     field_weights[f] = st.slider(f"Weight for '{f}':", min_value=0.0, max_value=3.0, value=1.0, step=0.5, key=f"sl_w_{f}")
@@ -495,7 +477,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 use_bigrams = st.checkbox("Include Bigrams (1, 2)", value=False)
                 top_k_val = st.slider("Top-K Recommendations:", min_value=3, max_value=20, value=5)
 
-                st.markdown("##### 🎯 Query Selection")
+                st.markdown("##### Query Selection")
                 catalog_titles = active_df[title_col].dropna().astype(str).tolist()
                 default_query_idx = 0
                 if "Inception" in catalog_titles:
@@ -505,7 +487,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
                 query_title = st.selectbox("Select Query Title:", options=catalog_titles, index=default_query_idx, key="sb_query_title")
 
-                run_rec_btn = st.button("⚡ Run Recommendation Experiment", type="primary", use_container_width=True, disabled=is_active_empty)
+                run_rec_btn = st.button("Run Recommendation Experiment", type="primary", use_container_width=True, disabled=is_active_empty)
 
             with r_res_col:
                 if run_rec_btn:
@@ -551,9 +533,9 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 if active_rec_run:
                     # Check dataset consistency for recommender run
                     if active_rec_run.get("dataset_id") != active_dataset_id:
-                        st.warning("⚠️ **Historical Recommender Run:** Current recommendations were computed on an earlier dataset state. Re-run experiment to update.")
+                        st.warning("**Historical Recommender Run:** Current recommendations were computed on an earlier dataset state. Re-run experiment to update.")
 
-                    st.markdown(f"#### 🎬 Top Recommendations for: *{active_rec_run['query_title']}*")
+                    st.markdown(f"#### Top Recommendations for: *{active_rec_run['query_title']}*")
                     q1, q2, q3 = st.columns(3)
                     q1.metric("Vocabulary Dimension", f"{active_rec_run['vocab_size']:,} terms")
                     q2.metric("Sparse Non-Zero Elements", f"{active_rec_run['nnz_entries']:,}")
@@ -565,7 +547,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     else:
                         display_cols = ["rank", title_col, "similarity_score"] + [c for c in ["listed_in", "director", "release_year"] if c in res_table.columns]
                         st.dataframe(res_table[display_cols], use_container_width=True, hide_index=True)
-                        st.caption("ℹ️ *Cosine similarity scores represent vector angles in term space, not predicted user ratings or recommendation probabilities.*")
+                        st.caption(" *Cosine similarity scores represent vector angles in term space, not predicted user ratings or recommendation probabilities.*")
 
                         # A/B Comparison against previous configuration with verification (Defect A6)
                         prev_run = st.session_state.get("rec_previous_run")
@@ -576,7 +558,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
                             if same_query and same_ds and same_col:
                                 st.markdown("---")
-                                st.markdown("#### ⚖️ A/B Comparison vs. Previous Run")
+                                st.markdown("#### A/B Comparison vs. Previous Run")
                                 ab_diff = compare_recommender_runs(prev_run["rec_results"], active_rec_run["rec_results"], title_col=title_col)
 
                                 m1, m2, m3 = st.columns(3)
@@ -585,15 +567,15 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                                 m3.metric("Entering Top-K", f"{len(ab_diff['entering_items'])} titles")
 
                                 if ab_diff["entering_items"]:
-                                    st.info(f"✨ **Items Entering Top-K:** `{', '.join(ab_diff['entering_items'])}`")
+                                    st.info(f"**Items Entering Top-K:** `{', '.join(ab_diff['entering_items'])}`")
                                 if ab_diff["leaving_items"]:
-                                    st.warning(f"🗑️ **Items Leaving Top-K:** `{', '.join(ab_diff['leaving_items'])}`")
+                                    st.warning(f"**Items Leaving Top-K:** `{', '.join(ab_diff['leaving_items'])}`")
                             elif not same_ds:
-                                st.caption("ℹ️ A/B comparison skipped: baseline run was evaluated on a different dataset version.")
+                                st.caption(" A/B comparison skipped: baseline run was evaluated on a different dataset version.")
 
                         # Truthful User Relevance Feedback Evaluation (Defect A6)
                         st.markdown("---")
-                        st.markdown("#### 🎯 User Relevance Feedback Evaluation")
+                        st.markdown("#### User Relevance Feedback Evaluation")
                         st.caption("Benchmark recommendations without fabricated ground truth. Mark items as relevant or irrelevant to compute judged relevance rate and partial NDCG.")
 
                         # Key feedback store by (dataset_id, title_col, query_title) to prevent cross-dataset contamination
@@ -606,14 +588,14 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                             fb_col1, fb_col2, fb_col3, fb_col4 = st.columns([3, 1, 1, 1])
                             with fb_col1:
                                 current_status = query_feedback.get(t)
-                                status_emoji = "👍 Relevant" if current_status == 1 else ("👎 Irrelevant" if current_status == 0 else "⚪ Unjudged")
-                                st.markdown(f"**{t}** — `{status_emoji}`")
+                                status_emoji = "Relevant" if current_status == 1 else ("Irrelevant" if current_status == 0 else "Unjudged")
+                                st.markdown(f"**{t}**  `{status_emoji}`")
                             with fb_col2:
-                                if st.button("👍", key=f"fb_pos_{feedback_key}_{t}"):
+                                if st.button("+1", key=f"fb_pos_{feedback_key}_{t}"):
                                     query_feedback[t] = 1
                                     st.rerun()
                             with fb_col3:
-                                if st.button("👎", key=f"fb_neg_{feedback_key}_{t}"):
+                                if st.button("-1", key=f"fb_neg_{feedback_key}_{t}"):
                                     query_feedback[t] = 0
                                     st.rerun()
                             with fb_col4:
@@ -634,20 +616,20 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                             help=eval_metrics.get("ndcg_method", "")
                         )
                         ev3.metric("Evaluated Items", f"{eval_metrics['judged_count']} / {eval_metrics['total_returned']}")
-                        st.caption(f"ℹ️ {eval_metrics['disclosure']}")
+                        st.caption(f" {eval_metrics['disclosure']}")
 
                         fb_btn_c1, fb_btn_c2 = st.columns(2)
                         with fb_btn_c1:
-                            if st.button("🧹 Clear Feedback for Current Query", key="btn_clr_query_fb"):
+                            if st.button("Clear Feedback for Current Query", key="btn_clr_query_fb"):
                                 query_feedback.clear()
                                 st.rerun()
                         with fb_btn_c2:
-                            if st.button("🗑️ Reset All Evaluation State", key="btn_reset_all_fb"):
+                            if st.button("Reset All Evaluation State", key="btn_reset_all_fb"):
                                 all_feedback_store.clear()
                                 st.rerun()
 
                         # Save Recommender Run
-                        if st.button("💾 Save Recommender Run to History", key="btn_save_rec_run"):
+                        if st.button("Save Recommender Run to History", key="btn_save_rec_run"):
                             saved_recs = st.session_state.setdefault("model_lab_saved_recommenders", [])
                             new_rec_id = f"REC_{len(saved_recs)+1:03d}"
                             saved_rec = {
@@ -674,13 +656,13 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # MODE 3: QUICK NETFLIX RECOMMENDATIONS (CONSOLIDATED - DEFECT B1)
     # ==================================================================
     with ml_tab3:
-        st.markdown("### ⚡ Quick Netflix Recommendations")
+        st.markdown("### Quick Netflix Recommendations")
         st.caption("Consolidated catalog recommender mode using established Netflix metadata soup features with executive card presentation.")
 
         # Check if dataset has title and description/genres
         has_title = "title" in active_df.columns
         if not has_title:
-            st.warning("⚠️ Quick Netflix Recommendations requires a 'title' column in the dataset. Switch to Mode 2 for custom columns.")
+            st.warning(" Quick Netflix Recommendations requires a 'title' column in the dataset. Switch to Mode 2 for custom columns.")
         else:
             avail_titles = sorted(active_df["title"].dropna().unique().tolist())
             def_idx = 0
@@ -786,13 +768,13 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # SUBTAB 4: EXPERIMENT TRACKER & EXPORT HUB (DEFECT A7)
     # ==================================================================
     with ml_tab4:
-        st.markdown("### 📋 Experiment Tracker & Export Hub")
+        st.markdown("### Experiment Tracker & Export Hub")
         st.caption("Review, compare, delete, and export all predictive modeling and recommendation runs saved within this session.")
 
         exp_col1, exp_col2 = st.columns(2)
 
         with exp_col1:
-            st.markdown("##### 🎯 Predictive Modeling History")
+            st.markdown("##### Predictive Modeling History")
             saved_models = st.session_state.get("model_lab_saved_experiments", [])
             if not saved_models:
                 st.info("No predictive modeling experiments saved yet.")
@@ -816,7 +798,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 with c_del2:
                     st.write("")
                     st.write("")
-                    if st.button("🗑️ Delete Selected", key="btn_del_model_exp"):
+                    if st.button("Delete Selected", key="btn_del_model_exp"):
                         st.session_state["model_lab_saved_experiments"] = [e for e in saved_models if e["experiment_id"] != exp_to_del]
                         st.success(f"Removed `{exp_to_del}`.")
                         st.rerun()
@@ -827,7 +809,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 c_exp1, c_exp2 = st.columns(2)
                 with c_exp1:
                     st.download_button(
-                        "📥 Export Models (CSV)",
+                        "Export Models (CSV)",
                         data=csv_buf.getvalue(),
                         file_name="predictive_model_experiments.csv",
                         mime="text/csv"
@@ -835,14 +817,14 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 with c_exp2:
                     json_str = json.dumps([json.loads(export_model_experiment_json(e)) for e in saved_models], indent=2)
                     st.download_button(
-                        "📥 Export Models (JSON)",
+                        "Export Models (JSON)",
                         data=json_str,
                         file_name="predictive_model_experiments.json",
                         mime="application/json"
                     )
 
         with exp_col2:
-            st.markdown("##### 🔍 Recommender Experiments History")
+            st.markdown("##### Recommender Experiments History")
             saved_recs = st.session_state.get("model_lab_saved_recommenders", [])
             if not saved_recs:
                 st.info("No recommender experiment runs saved yet.")
@@ -864,7 +846,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 with c_rdel2:
                     st.write("")
                     st.write("")
-                    if st.button("🗑️ Delete Selected", key="btn_del_rec_exp"):
+                    if st.button("Delete Selected", key="btn_del_rec_exp"):
                         st.session_state["model_lab_saved_recommenders"] = [r for r in saved_recs if r["run_id"] != rec_to_del]
                         st.success(f"Removed `{rec_to_del}`.")
                         st.rerun()
@@ -874,7 +856,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 cr_exp1, cr_exp2 = st.columns(2)
                 with cr_exp1:
                     st.download_button(
-                        "📥 Export Recommenders (CSV)",
+                        "Export Recommenders (CSV)",
                         data=csv_rec.getvalue(),
                         file_name="recommender_experiments.csv",
                         mime="text/csv"
@@ -882,7 +864,7 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 with cr_exp2:
                     json_rec = json.dumps([json.loads(export_recommender_experiment_json(r)) for r in saved_recs], indent=2)
                     st.download_button(
-                        "📥 Export Recommenders (JSON)",
+                        "Export Recommenders (JSON)",
                         data=json_rec,
                         file_name="recommender_experiments.json",
                         mime="application/json"

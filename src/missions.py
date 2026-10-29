@@ -239,7 +239,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "Missingness often correlates with underlying variables (e.g. episodic TV shows lacking single directors). Dropping missing rows can destroy entire business segments from your training set."
         },
         tradeoff_explanation="Data quality issues should be diagnosed structurally. Distinguish between random missingness (MCAR) and systematic format constraints (MAR/MNAR).",
-        badge="🔍 Catalog Detective",
+        badge="Catalog Detective",
         next_mission_id="mission_2"
     ),
 
@@ -272,7 +272,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "Replacing missing values with a central tendency estimate retains sample rows for training, but artificially clusters values at the center, reducing the observed variance."
         },
         tradeoff_explanation="Preserving rows through imputation trades variance accuracy for sample size. There is no one-size-fits-all strategy.",
-        badge="🧹 Hygiene Architect",
+        badge="Hygiene Architect",
         next_mission_id="mission_3"
     ),
 
@@ -305,7 +305,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "Algorithms can only find relationships in the representations they receive. Exposing clear business signals (ratios, intervals, bins) often provides far greater leverage than marginal parameter tuning."
         },
         tradeoff_explanation="Derived features improve expressiveness but increase dimensionality and multicollinearity risk. Monitor feature count.",
-        badge="⚙️ Feature Alchemist",
+        badge="Feature Alchemist",
         next_mission_id="mission_4"
     ),
 
@@ -338,7 +338,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "On imbalanced datasets, predicting the majority class can yield high raw accuracy while having zero predictive power. Comparing against a dummy baseline proves actual predictive utility."
         },
         tradeoff_explanation="High test metrics on imbalanced data can be deceptive. Balanced Accuracy and Macro-F1 reveal whether minority classes are actually being learned.",
-        badge="🎯 Benchmark Champion",
+        badge="Benchmark Champion",
         next_mission_id="mission_5"
     ),
 
@@ -371,7 +371,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "In real-world data science, different errors carry different business costs (e.g. false negatives in churn or fraud). Error diagnostics reveal where the model fails."
         },
         tradeoff_explanation="Error diagnosis moves data science from passive metric chasing to active debugging. Inspect individual misclassifications.",
-        badge="🔬 Model Clinician",
+        badge="Model Clinician",
         next_mission_id="mission_6"
     ),
 
@@ -404,7 +404,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "Two movies may share keywords (e.g. 'space', 'action') yet appeal to completely different audiences. Content similarity is a ranking heuristic, not ground truth relevance."
         },
         tradeoff_explanation="Term similarity can produce redundant or repetitive recommendations without user relevance feedback. Balance similarity with diversity.",
-        badge="🎬 Recommender Strategist",
+        badge="Recommender Strategist",
         required_columns=["title"],
         next_mission_id="mission_7"
     ),
@@ -416,7 +416,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
         objective="Assemble a multi-step pipeline in Workflow Studio, execute it deterministically, inspect intermediate states, and export the audit report.",
         steps=[
             "1. Open the 'Workflow Studio' tab.",
-            "2. Select a starter workflow or assemble at least two connected steps (e.g. Deduplicate → Impute → Train Model).",
+            "2. Select a starter workflow or assemble at least two connected steps (e.g. Deduplicate  Impute  Train Model).",
             "3. Click 'Run Complete Workflow' and monitor step execution statuses.",
             "4. Inspect intermediate outputs in 'What Changed?' and export the Markdown audit report."
         ],
@@ -438,7 +438,7 @@ MISSION_REGISTRY: Dict[str, DataScientistMission] = {
             "explanation": "Data science in production fails when results cannot be traced back to exact input states and transformations. DAG execution guarantees reproducibility and auditability."
         },
         tradeoff_explanation="Pipeline automation enforces discipline and reproducibility. Versioned workflows turn ad-hoc analysis into reliable software.",
-        badge="🏆 Master Data Scientist",
+        badge="Master Data Scientist",
         next_mission_id=None
     ),
 }

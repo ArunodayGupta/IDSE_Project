@@ -7,10 +7,9 @@ global audience localization, format mechanics, and the data hygiene pipeline au
 (including the Missing Director Hypothesis).
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import streamlit as st
 import pandas as pd
-import numpy as np
 
 from src.feature_engineer import explode_column
 from src.visualizations import (
@@ -52,7 +51,7 @@ def render_netflix_case_study_tab(
     # -------------------------------------------------------------------------
     # 1. Netflix Strategic Slicers (Contained locally within the Case Study)
     # -------------------------------------------------------------------------
-    with st.expander("🔎 Filter & Slice Catalog Data", expanded=False):
+    with st.expander("Filter & Slice Catalog Data", expanded=False):
         c1, c2, c3 = st.columns([1.2, 1, 1])
 
         with c1:
@@ -147,7 +146,7 @@ def render_netflix_case_study_tab(
         {
             "title": "Median Movie Runtime",
             "value": f"{median_runtime} min",
-            "subtext": "Sweet spot: 90–110 minutes",
+            "subtext": "Sweet spot: 90110 minutes",
             "subtext_neutral": True,
             "accent_color": COLOR_CYAN
         },
@@ -166,10 +165,10 @@ def render_netflix_case_study_tab(
     # 3. Four Strategic Subtabs
     # -------------------------------------------------------------------------
     cs_tab1, cs_tab2, cs_tab3, cs_tab4 = st.tabs([
-        "📈 Executive Strategy & Growth",
-        "🌍 Global Distribution & Ratings",
-        "🎭 Genre & Format Analysis",
-        "🛠️ Pipeline Quality & Missing Director Study"
+        "Executive Strategy & Growth",
+        "Global Distribution & Ratings",
+        "Genre & Format Analysis",
+        "Pipeline Quality & Missing Director Study"
     ])
 
     # Tab 1: Strategy & Growth

@@ -6,7 +6,7 @@ Fits on Netflix metadata soup features (title, director, cast, genres, descripti
 and calculates a cosine similarity matrix to recommend the most similar titles.
 """
 
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict
 import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer

@@ -13,15 +13,12 @@ Interactive workspace for:
 - Transformed Data and Cleaning Report Export Hub
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import streamlit as st
 import pandas as pd
-import numpy as np
 
 from src.data_explorer import (
     classify_column_type,
-    compute_overview_metrics,
-    format_bytes,
     compute_dataset_identity,
 )
 from src.cleaning_lab import (
@@ -36,8 +33,6 @@ from src.data_context import (
 )
 from src.ui_theme import (
     render_page_header,
-    render_callout,
-    render_badge,
     COLOR_CYAN,
     COLOR_SUCCESS,
     COLOR_WARNING,
@@ -66,7 +61,7 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
         <div class="insight-box" style="border-left-color: {border_left}; margin: 16px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                 <div class="insight-title" style="color: {border_left}; margin: 0;">
-                    🔍 What Changed? — {op_name}
+                     What Changed?  {op_name}
                 </div>
                 <span class="badge-pill {badge_type}">
                     {status}
@@ -112,23 +107,23 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
 
     # Detailed differences
     if comparison["columns_added"]:
-        st.info(f"✨ **New Columns Created:** `{', '.join(comparison['columns_added'])}`")
+        st.info(f" **New Columns Created:** `{', '.join(comparison['columns_added'])}`")
     if comparison["columns_removed"]:
-        st.warning(f"🗑️ **Columns Dropped:** `{', '.join(comparison['columns_removed'])}`")
+        st.warning(f"**Columns Dropped:** `{', '.join(comparison['columns_removed'])}`")
     if comparison["type_changes"]:
-        type_str = ", ".join(f"`{col}` ({info['before']} ➔ {info['after']})" for col, info in comparison["type_changes"].items())
-        st.info(f"🔄 **Data Types Converted:** {type_str}")
+        type_str = ", ".join(f"`{col}` ({info['before']}  {info['after']})" for col, info in comparison["type_changes"].items())
+        st.info(f"**Data Types Converted:** {type_str}")
 
     # Representative Changed Cells in Retained Rows
     rep_changes = comparison.get("representative_changed_cells", [])
     if rep_changes:
-        with st.expander(f"🔬 Inspect Modified Cells ({comparison.get('changed_cells_count', 0):,} cells modified across retained rows)", expanded=False):
+        with st.expander(f" Inspect Modified Cells ({comparison.get('changed_cells_count', 0):,} cells modified across retained rows)", expanded=False):
             st.dataframe(pd.DataFrame(rep_changes), use_container_width=True, hide_index=True)
 
     # Representative Removed Records
     rep_removed = comparison.get("representative_removed_records", [])
     if rep_removed:
-        with st.expander(f"🗑️ Inspect Representative Removed Records ({comparison.get('rows_removed_count', 0):,} rows dropped)", expanded=False):
+        with st.expander(f" Inspect Representative Removed Records ({comparison.get('rows_removed_count', 0):,} rows dropped)", expanded=False):
             st.dataframe(pd.DataFrame(rep_removed), use_container_width=True)
 
     # Column Stats Comparison if available
@@ -174,7 +169,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
             source_identity = compute_dataset_identity(shared_source_df, source_name=source_name)
             set_source_dataset(shared_source_df, source_identity, source_name)
         else:
-            st.info("👆 Please select or upload a dataset in **🔬 Explore Dataset** to begin cleaning and transformation.")
+            st.info(" Please select or upload a dataset in **Explore Dataset** to begin cleaning and transformation.")
             return
 
     # Initialize or reset WorkingDatasetManager if source changed
@@ -191,12 +186,12 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
     step_count = len(current_manager.history)
     b_col1, b_col2, b_col3 = st.columns([2, 1, 1])
     with b_col1:
-        st.markdown(f"📁 **Source Catalog:** `{source_name}` &nbsp;|&nbsp; `{len(current_manager.source_df):,} rows × {current_manager.source_df.shape[1]} cols`")
+        st.markdown(f"**Source Catalog:** `{source_name}` &nbsp;|&nbsp; `{len(current_manager.source_df):,} rows × {current_manager.source_df.shape[1]} cols`")
     with b_col2:
-        st.markdown(f"⚙️ **Working Copy:** `{len(current_manager.working_df):,} rows × {current_manager.working_df.shape[1]} cols`")
+        st.markdown(f"**Working Copy:** `{len(current_manager.working_df):,} rows × {current_manager.working_df.shape[1]} cols`")
     with b_col3:
         status_color = COLOR_CYAN if step_count > 0 else "#64748B"
-        st.markdown(f"📜 **Transformations Applied:** <b style='color: {status_color};'>{step_count} step{'s' if step_count != 1 else ''}</b>", unsafe_allow_html=True)
+        st.markdown(f"**Transformations Applied:** <b style='color: {status_color};'>{step_count} step{'s' if step_count != 1 else ''}</b>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -204,12 +199,12 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
     # Clean & Transform Subtabs
     # ------------------------------------------------------------------
     cl_tab1, cl_tab2, cl_tab3, cl_tab4, cl_tab5, cl_tab6 = st.tabs([
-        "📊 1. Data Quality Audit",
-        "🧹 2. Cleaning Workspace",
-        "⚡ 3. Feature Engineering Playground",
-        "🔍 4. What Changed? Comparison",
-        "📜 5. Audit Ledger & Undo",
-        "💾 6. Export Hub"
+        "1. Data Quality Audit",
+        "2. Cleaning Workspace",
+        "3. Feature Engineering Playground",
+        "4. What Changed? Comparison",
+        "5. Audit Ledger & Undo",
+        "6. Export Hub"
     ])
 
     # ==================================================================
@@ -228,7 +223,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         a4.metric("Duplicate Rows", f"{audit_data['duplicate_rows']:,} ({audit_data['duplicate_rows_pct']}%)")
 
         if audit_data["warnings"]:
-            st.markdown("##### ⚠️ Audit Findings & Structural Warnings")
+            st.markdown("##### Audit Findings & Structural Warnings")
             for w in audit_data["warnings"]:
                 st.warning(w)
 
@@ -242,7 +237,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
                 ])
                 st.dataframe(m_table, use_container_width=True, hide_index=True)
             else:
-                st.success("✅ No missing values detected in any column.")
+                st.success(" No missing values detected in any column.")
 
         with col_aud2:
             st.markdown("##### Special Column Detections")
@@ -676,7 +671,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
             for r_key, r_title, req_cols in recipe_choices:
                 has_reqs = all(c in working_df.columns for c in req_cols) or (r_key == "acquisition_lag" and ("release_year" in working_df.columns and "date_added" in working_df.columns))
                 st.markdown(f"**{r_title}**")
-                st.caption(f"Requires: `{', '.join(req_cols)}` — Status: {'✅ Eligible' if has_reqs else '❌ Missing required columns'}")
+                st.caption(f"Requires: `{', '.join(req_cols)}`  Status: {'Eligible' if has_reqs else 'Missing required columns'}")
 
                 r_col1, r_col2 = st.columns(2)
                 with r_col1:
@@ -699,7 +694,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         st.caption("Detailed before-and-after state analysis for the most recently applied operation.")
 
         if current_manager.last_comparison is None:
-            st.info("ℹ️ No transformations have been applied yet in this session. Apply an operation in Tab 2 or 3 to inspect its detailed consequences.")
+            st.info(" No transformations have been applied yet in this session. Apply an operation in Tab 2 or 3 to inspect its detailed consequences.")
         else:
             _render_what_changed_card(current_manager.last_comparison)
 
@@ -721,14 +716,14 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
 
         u_col1, u_col2 = st.columns(2)
         with u_col1:
-            if st.button("↩️ Undo Most Recent Operation", key="btn_undo_step", disabled=(len(current_manager.history) == 0)):
+            if st.button("Undo Most Recent Operation", key="btn_undo_step", disabled=(len(current_manager.history) == 0)):
                 undone = current_manager.undo_last_step()
                 if undone:
                     st.success(f"Undid step #{undone['step_number']} ({undone['operation_type']}).")
                     st.rerun()
 
         with u_col2:
-            if st.button("🔄 Reset Working Copy to Raw Source", key="btn_reset_source", type="secondary"):
+            if st.button("Reset Working Copy to Raw Source", key="btn_reset_source", type="secondary"):
                 current_manager.reset_to_source()
                 st.success("Working copy reset to immutable raw source!")
                 st.rerun()
@@ -763,7 +758,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         with e_col1:
             transformed_csv = current_manager.export_transformed_csv()
             st.download_button(
-                label=f"📥 Download Transformed Dataset ({len(current_manager.working_df):,} rows CSV)",
+                label=f" Download Transformed Dataset ({len(current_manager.working_df):,} rows CSV)",
                 data=transformed_csv,
                 file_name=f"{source_name.replace(' ', '_').lower()}_transformed.csv",
                 mime="text/csv",
@@ -773,7 +768,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         with e_col2:
             audit_report_csv = current_manager.export_cleaning_report_csv()
             st.download_button(
-                label="📥 Download Audit Ledger Report (CSV)",
+                label="Download Audit Ledger Report (CSV)",
                 data=audit_report_csv,
                 file_name=f"{source_name.replace(' ', '_').lower()}_cleaning_report.csv",
                 mime="text/csv",
@@ -783,7 +778,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         with e_col3:
             pipeline_json = current_manager.export_pipeline_json()
             st.download_button(
-                label="📥 Download Transformation Plan (JSON)",
+                label="Download Transformation Plan (JSON)",
                 data=pipeline_json,
                 file_name=f"{source_name.replace(' ', '_').lower()}_pipeline_plan.json",
                 mime="application/json",
@@ -791,7 +786,7 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
             )
 
         st.markdown("---")
-        st.markdown("##### 🔄 Import & Replay Transformation Pipeline (JSON)")
+        st.markdown("##### Import & Replay Transformation Pipeline (JSON)")
         st.caption("Replay an exported JSON transformation pipeline plan transactionally on the current active raw source dataset.")
 
         uploaded_json_file = st.file_uploader(
@@ -817,21 +812,21 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
         if p_json_text.strip():
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
-                if st.button("🔍 Validate Pipeline Plan", key="btn_validate_pipeline"):
+                if st.button("Validate Pipeline Plan", key="btn_validate_pipeline"):
                     v_res = current_manager.import_pipeline_json(p_json_text.strip(), validate_only=True)
                     if v_res.get("success"):
-                        st.success(f"✅ Pipeline is valid! Found {v_res.get('step_count')} compatible operations ready for replay.")
+                        st.success(f"Pipeline is valid! Found {v_res.get('step_count')} compatible operations ready for replay.")
                         if v_res.get("audit_preview"):
                             preview_rows = [{"Step": p["step"], "Operation": p["operation"], "Details": str(p["details"])} for p in v_res["audit_preview"]]
                             st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
                     else:
-                        st.error(f"❌ Validation failed: {v_res.get('error')}")
+                        st.error(f"Validation failed: {v_res.get('error')}")
 
             with btn_col2:
-                if st.button("🚀 Apply Pipeline Replay", key="btn_apply_pipeline_replay", type="primary"):
+                if st.button("Apply Pipeline Replay", key="btn_apply_pipeline_replay", type="primary"):
                     r_res = current_manager.import_pipeline_json(p_json_text.strip(), validate_only=False)
                     if r_res.get("success"):
-                        st.success(f"🎉 Replay succeeded! Applied {r_res.get('applied_steps')} operations. Working dataset now has {r_res.get('working_rows'):,} rows × {r_res.get('working_cols')} columns.")
+                        st.success(f"Replay succeeded! Applied {r_res.get('applied_steps')} operations. Working dataset now has {r_res.get('working_rows'):,} rows × {r_res.get('working_cols')} columns.")
                         st.rerun()
                     else:
-                        st.error(f"❌ Replay failed: {r_res.get('error')}")
+                        st.error(f"Replay failed: {r_res.get('error')}")

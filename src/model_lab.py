@@ -19,7 +19,6 @@ Includes:
 
 from typing import Dict, Any, List, Optional, Tuple, Union
 import json
-import io
 import time
 import math
 import hashlib
@@ -27,7 +26,7 @@ import numpy as np
 import pandas as pd
 from scipy.sparse import hstack, csr_matrix
 
-from sklearn.model_selection import train_test_split, KFold, StratifiedKFold, cross_val_score
+from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -50,7 +49,7 @@ from sklearn.metrics import (
 
 # Supported Supervised Estimators
 from sklearn.dummy import DummyClassifier, DummyRegressor
-from sklearn.linear_model import LogisticRegression, Ridge, LinearRegression
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 

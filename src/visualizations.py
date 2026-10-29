@@ -12,10 +12,8 @@ Visualizations:
 6. plot_missing_directors_comparison: Rate comparison of TV vs. Movie missing director values.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import pandas as pd
-import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -369,7 +367,7 @@ def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
     fig = make_subplots(
         rows=1, cols=2,
         subplot_titles=(
-            "Movie Runtimes (90–110 Min Window)",
+            "Movie Runtimes (90110 Min Window)",
             "TV Show Seasons (Season Count Distribution)"
         ),
         horizontal_spacing=0.12

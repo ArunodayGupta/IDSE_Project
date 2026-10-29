@@ -1,4 +1,4 @@
-# 🎬 DataLab — Interactive Data Science Platform & Netflix Strategy Case Study
+# DataLab — Interactive Data Science Platform & Netflix Strategy Case Study
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-red.svg)](https://www.python.org/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30+-FF4B4B.svg)](https://streamlit.io/)
@@ -13,22 +13,22 @@ Built with pure Python, **Streamlit**, **Plotly**, and **Scikit-Learn**, powered
 
 ---
 
-## 📌 Primary Navigation & System Architecture
+## Primary Navigation & System Architecture
 
 The application is structured into **6 canonical workspaces** navigated via an active-workspace sidebar dispatcher that renders only the currently selected workspace:
 
 ```text
-├── 🔬 Explore Dataset       # Phase 1: Schema profiling, missingness audit, distributions, filters
-├── 🧹 Clean & Transform      # Phase 2: Missingness handling, deduplication, feature engineering, audit ledger
-├── ⚡ Workflow Studio        # Phase 4: Visual DAG pipeline builder, stage inspection, execution engine
-├── 🤖 Model Lab             # Phase 3: Predictive modeling studio, recommender arena, quick recommendations
-├── 🎯 Missions              # Phase 4: Guided data science missions with verifiable completion evidence
-└── 🎬 Netflix Case Study    # Domain analytics: Executive strategy, global reach, genres, pipeline report
+├── Explore Dataset       # Phase 1: Schema profiling, missingness audit, distributions, filters
+├── Clean & Transform      # Phase 2: Missingness handling, deduplication, feature engineering, audit ledger
+├── Workflow Studio        # Phase 4: Visual DAG pipeline builder, stage inspection, execution engine
+├── Model Lab             # Phase 3: Predictive modeling studio, recommender arena, quick recommendations
+├── Missions              # Phase 4: Guided data science missions with verifiable completion evidence
+└── Netflix Case Study    # Domain analytics: Executive strategy, global reach, genres, pipeline report
 ```
 
 ---
 
-## 🏗️ Repository Structure
+## Repository Structure
 
 ```text
 IDSE_Project/
@@ -73,7 +73,7 @@ IDSE_Project/
 
 ---
 
-## 🚀 Quickstart & Installation
+## Quickstart & Installation
 
 ### 1. Clone & Set Up Environment
 
@@ -109,7 +109,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ---
 
-## 🎨 Modern Analytics Workspace Design System (`src/ui_theme.py`)
+## Modern Analytics Workspace Design System (`src/ui_theme.py`)
 
 DataLab has been completely redesigned with a cohesive, modern analytics workspace aesthetic:
 - **Surface Palette:** Deep midnight-navy (`#0B0F19`) canvas with elevated dark panels (`#141C2E`, `#0E1424`) and subtle geometric borders (`#1E2B44`).
@@ -120,9 +120,9 @@ DataLab has been completely redesigned with a cohesive, modern analytics workspa
 
 ---
 
-## 🔬 Four-Phase DataLab Architecture
+## Four-Phase DataLab Architecture
 
-### Phase 1: 🔬 Interactive Dataset Explorer (`src/data_explorer.py`, `src/explorer_ui.py`)
+### Phase 1:  Interactive Dataset Explorer (`src/data_explorer.py`, `src/explorer_ui.py`)
 - **Dataset Source Selection:** Seamlessly switch between the built-in Kaggle Netflix catalog (8,807 rows) and custom uploaded CSVs (supporting UTF-8, Latin-1, CP1252 with BOM handling).
 - **KPI Summary Scorecard:** Instant calculation of row count, column counts by logical type, duplicate rows, missing cell counts & percentages, complete rows, and deep memory footprint.
 - **Five Specialized Subtabs:**
@@ -132,7 +132,7 @@ DataLab has been completely redesigned with a cohesive, modern analytics workspa
   4. *Filter & Search Workspace:* Multi-condition filtering combining numeric ranges, categorical selections, text queries, and missingness flags with predictable `AND` logic.
   5. *Record Browser & Inspector:* Paginated tabular browsing with sorted columns and deep row-level inspection.
 
-### Phase 2: 🧹 Clean & Transform Lab (`src/cleaning_lab.py`, `src/cleaning_lab_ui.py`)
+### Phase 2:  Clean & Transform Lab (`src/cleaning_lab.py`, `src/cleaning_lab_ui.py`)
 - **Shared State Management:** The active dataset is shared canonically across workspaces using `src/data_context.py` with immutable raw source snapshots and isolated working copies.
 - **Zero-Row Working Dataset Preservation:** Downstream workspaces correctly recognize and preserve legitimate cleaning operations that result in 0 rows without silently reverting to raw data.
 - **Transformation Operations Registry:**
@@ -143,7 +143,7 @@ DataLab has been completely redesigned with a cohesive, modern analytics workspa
 - **"What Changed?" Differential Engine:** Quantifies altered cells within retained rows, identifies removed records, calculates per-column missingness deltas, and logs an audit ledger.
 - **Deterministic Undo & Replay:** Replays configurations from the immutable raw source with transaction safety and JSON export/import.
 
-### Phase 3: 🤖 Model Lab (`src/model_lab.py`, `src/model_lab_ui.py`)
+### Phase 3:  Model Lab (`src/model_lab.py`, `src/model_lab_ui.py`)
 - **Mode 1 — Predictive Modeling Studio:**
   - *Task Heuristic Detection:* Auto-suggests classification or regression based on target cardinality and data types.
   - *Leakage-Free Preprocessing:* Scikit-Learn `ColumnTransformer` fitted strictly on training splits. Categorical features are encoded via `OneHotEncoder(sparse_output=True, handle_unknown="ignore")` with cardinality guards.
@@ -158,12 +158,12 @@ DataLab has been completely redesigned with a cohesive, modern analytics workspa
   - *Multi-Field Weighting & Ablation:* Allows users to configure field weights, n-gram ranges, sublinear TF, and stop words.
   - *A/B Query Comparisons:* Side-by-side evaluation calculating Jaccard overlap, rank shifts, and entering/leaving items.
   - *Truthful Relevance Metrics:* Feedback is keyed by `(dataset_id, title_col, query_title)`. Reports **relevance rate among judged recommendations** with the exact denominator displayed (`X / Y judged`), alongside documented partial NDCG.
-- **Mode 3 — ⚡ Quick Netflix Recommendations:**
+- **Mode 3 — Quick Netflix Recommendations:**
   - Direct title lookup using the legacy recommendation algorithm paired with modern glassmorphism recommendation cards displaying match percentages, metadata tokens, and synopses.
 
 ---
 
-## ⚡ Phase 4: Visual Workflow Studio (`src/workflow_engine.py`, `src/workflow_ui.py`)
+## Phase 4: Visual Workflow Studio (`src/workflow_engine.py`, `src/workflow_ui.py`)
 
 Workflow Studio allows practitioners to assemble, configure, execute, and inspect complete data science pipelines as a directed acyclic graph (DAG).
 
@@ -195,7 +195,7 @@ flowchart TD
 
 ---
 
-## 🎯 Phase 4: Data Scientist Mission Mode (`src/missions.py`, `src/missions_ui.py`)
+## Phase 4: Data Scientist Mission Mode (`src/missions.py`, `src/missions_ui.py`)
 
 A guided learning track consisting of **7 progressive, evidence-based missions**:
 
@@ -219,7 +219,7 @@ A guided learning track consisting of **7 progressive, evidence-based missions**
 
 ---
 
-## 🎬 Netflix Content Strategy Case Study (`src/netflix_case_study_ui.py`, `src/visualizations.py`)
+## Netflix Content Strategy Case Study (`src/netflix_case_study_ui.py`, `src/visualizations.py`)
 
 Retained as a dedicated executive case study analyzing Netflix's transformation into a global streaming powerhouse:
 
@@ -238,7 +238,7 @@ Retained as a dedicated executive case study analyzing Netflix's transformation 
 
 ---
 
-## 🧪 Testing, Quality & Regression Verification
+## Testing, Quality & Regression Verification
 
 Automated tests are located in `tests/`:
 
@@ -267,7 +267,7 @@ python -m unittest tests/test_refactor_regression.py -v
 
 ---
 
-## ⚠️ Known Technical Limitations & Modeling Caveats
+## Known Technical Limitations & Modeling Caveats
 
 1. **Same-Year Acquisition Lag as a Proxy:**
    - Calculating `acquisition_lag = year_added - release_year == 0` is an operational proxy for day-and-date or in-house releases. It does **not** prove a causal business strategy or establish formal intellectual property ownership.

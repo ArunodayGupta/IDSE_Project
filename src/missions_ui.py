@@ -10,13 +10,13 @@ Provides:
 - Seamless dataset adaptation for Netflix catalog vs custom uploaded tabular files.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 import streamlit as st
 import pandas as pd
 
 from .data_context import get_source_dataset, get_working_dataset
-from .missions import list_all_missions, get_mission, DataScientistMission
-from .ui_theme import render_page_header, COLOR_SUCCESS, COLOR_CYAN, COLOR_VIOLET
+from .missions import list_all_missions, get_mission
+from .ui_theme import render_page_header
 
 
 def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
@@ -55,14 +55,14 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         st.progress(progress_pct)
         st.caption(f"Curriculum Track: {done_count} of {total_count} data science missions completed.")
     with prog_c3:
-        if st.button("🔄 Reset Mission Progress", key="btn_reset_all_missions"):
+        if st.button("Reset Mission Progress", key="btn_reset_all_missions"):
             st.session_state["datalab_completed_missions"] = {}
             st.session_state["mission_reflection_answers"] = {}
             st.success("Mission progress reset!")
             st.rerun()
 
     # Badges Row
-    st.markdown("##### 🏅 Earned Data Scientist Badges")
+    st.markdown("##### Earned Data Scientist Badges")
     badge_cols = st.columns(len(all_missions))
     for idx, m in enumerate(all_missions):
         with badge_cols[idx]:
@@ -70,7 +70,7 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             badge_bg = "rgba(16, 185, 129, 0.12)" if is_done else "rgba(20, 28, 46, 0.85)"
             badge_border = "rgba(16, 185, 129, 0.4)" if is_done else "#1E2B44"
             badge_color = "#10B981" if is_done else "#64748B"
-            check_mark = "✅ " if is_done else "🔒 "
+            check_mark = " " if is_done else " "
 
             st.markdown(f"""
                 <div style="background-color: {badge_bg}; border: 1px solid {badge_border}; border-radius: 6px; padding: 10px 6px; text-align: center;">
@@ -88,7 +88,7 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     sel_col, detail_col = st.columns([1, 2])
 
     with sel_col:
-        st.markdown("##### 🗺️ Mission Track")
+        st.markdown("##### Mission Track")
         mission_keys = [m.mission_id for m in all_missions]
 
         # Determine default active mission
@@ -102,7 +102,7 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             "Select Mission:",
             options=mission_keys,
             index=default_idx,
-            format_func=lambda x: f"{'✅' if x in completed_missions else '⏳'} {get_mission(x).title.split(':')[1].strip()}",
+            format_func=lambda x: f"{'' if x in completed_missions else ''} {get_mission(x).title.split(':')[1].strip()}",
             key="rb_selected_mission"
         )
 
@@ -125,21 +125,21 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             </div>
         """, unsafe_allow_html=True)
 
-        st.markdown(f"**🎯 Learning Objective:** {current_mission.objective}")
+        st.markdown(f"**Learning Objective:** {current_mission.objective}")
 
         # Check dataset prerequisites (Defect D4)
         is_compat, compat_msg = current_mission.is_compatible(active_df)
         if not is_compat:
-            st.warning(f"⚠️ {compat_msg}")
+            st.warning(compat_msg)
 
-        st.markdown("##### 📋 Mission Steps")
+        st.markdown("##### Mission Steps")
         for s in current_mission.steps:
             st.markdown(f"- {s}")
 
         st.markdown("---")
 
         # Layered Hints Accordion (Defect D5)
-        st.markdown("##### 💡 Guided Hints")
+        st.markdown("##### Guided Hints")
         with st.expander("Level 1: Conceptual Principle"):
             st.write(current_mission.hints.get(1, "Think about the statistical trade-offs."))
 
@@ -154,8 +154,8 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         # --------------------------------------------------------------
         # Step 3: Verifiable Action Verification & Evidence (Defect D1)
         # --------------------------------------------------------------
-        st.markdown("##### 🔬 Verification & Evidence")
-        verify_btn = st.button("🔍 Verify Mission Completion", type="primary", use_container_width=True)
+        st.markdown("##### Verification & Evidence")
+        verify_btn = st.button("Verify Mission Completion", type="primary", use_container_width=True)
 
         if verify_btn:
             # First mark user explored if on mission 1
@@ -170,19 +170,19 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     "evidence": evidence,
                 }
                 st.session_state["datalab_completed_missions"] = completed_missions
-                st.success(f"🎉 **Mission Accomplished!** {message}")
+                st.success(f"**Mission Accomplished!** {message}")
                 st.balloons()
             else:
-                st.error(f"❌ **Prerequisites Not Yet Met:** {message}")
+                st.error(f"**Prerequisites Not Yet Met:** {message}")
 
         # If completed, show Reflection Question & Trade-off Explanation (Defect D6)
         if current_mission.mission_id in completed_missions:
             evidence_rec = completed_missions[current_mission.mission_id].get("evidence", {})
             if evidence_rec:
-                st.markdown("##### 📄 Recorded Completion Evidence")
+                st.markdown("#####  Recorded Completion Evidence")
                 st.json(evidence_rec)
 
-            st.markdown("##### 🤔 Critical Data Science Reflection")
+            st.markdown("#####  Critical Data Science Reflection")
             q_data = current_mission.reflection_question
             q_key = f"refl_{current_mission.mission_id}"
             user_choice = st.radio(
@@ -193,12 +193,12 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
             chosen_idx = q_data["options"].index(user_choice) if user_choice in q_data["options"] else -1
             if chosen_idx == q_data["correct_idx"]:
-                st.success(f"✅ **Correct!** {q_data['explanation']}")
+                st.success(f"**Correct!** {q_data['explanation']}")
             else:
-                st.info(f"💡 **Analysis:** {q_data['explanation']}")
+                st.info(f"**Analysis:** {q_data['explanation']}")
 
-            st.info(f"📚 **Key Takeaway:** {current_mission.tradeoff_explanation}")
+            st.info(f"**Key Takeaway:** {current_mission.tradeoff_explanation}")
 
             if current_mission.next_mission_id:
                 next_m = get_mission(current_mission.next_mission_id)
-                st.markdown(f"👉 **Next Up:** *{next_m.title}*")
+                st.markdown(f"**Next Up:** *{next_m.title}*")

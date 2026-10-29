@@ -11,7 +11,7 @@ Centralizes:
 5. HTML escaping utility for safe rendering of user/dataset values.
 """
 
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 import html
 import streamlit as st
 import plotly.graph_objects as go
@@ -542,11 +542,11 @@ def render_callout(
     """
     c_type = callout_type.lower()
     icon = {
-        "info": "💡",
-        "warning": "⚠️",
-        "success": "✅",
-        "danger": "🚨"
-    }.get(c_type, "📌")
+        "info": "",
+        "warning": "",
+        "success": "",
+        "danger": ""
+    }.get(c_type, "")
 
     st.markdown(f"""
         <div class="callout-box {escape_html(c_type)}">
@@ -568,7 +568,7 @@ def render_badge(text: str, badge_type: str = "info") -> str:
 def render_empty_state(
     title: str,
     message: str,
-    icon: str = "🔍"
+    icon: str = ""
 ) -> None:
     """Renders a visually intentional empty state container."""
     st.markdown(f"""

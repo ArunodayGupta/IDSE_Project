@@ -16,23 +16,15 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 import copy
 import json
 import time
-import math
 import uuid
 import pandas as pd
-import numpy as np
 
-from .operation_registry import get_operation_spec, OPERATION_REGISTRY
-from .cleaning_lab import (
-    WorkingDatasetManager,
-    compute_what_changed,
-    check_column_collisions,
-    get_expected_output_columns,
-)
+from .operation_registry import get_operation_spec
+from .cleaning_lab import WorkingDatasetManager
 from .model_lab import (
     validate_modeling_inputs,
     train_and_evaluate_model,
     RecommenderArenaService,
-    compute_model_config_fingerprint,
 )
 
 
@@ -608,7 +600,7 @@ class WorkflowPipeline:
         else:
             for idx, s_id in enumerate(self.step_order, 1):
                 step = self.steps[s_id]
-                status_emoji = "✅" if step.status == "completed" else ("❌" if step.status == "failed" else "⏳")
+                status_emoji = "" if step.status == "completed" else ("" if step.status == "failed" else "")
                 lines.append(f"### Step {idx}: {step.name} {status_emoji}")
                 lines.append(f"- **Operation:** `{step.op_type}`")
                 lines.append(f"- **Status:** `{step.status.upper()}`")

@@ -15,8 +15,7 @@ Each operation specification declares:
 - handler: Functional execution dispatch
 """
 
-from typing import Dict, Any, List, Optional, Callable, Tuple
-import pandas as pd
+from typing import Dict, Any, List, Optional
 
 
 class OperationSpec:

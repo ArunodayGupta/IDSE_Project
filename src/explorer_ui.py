@@ -13,11 +13,9 @@ Provides modular UI components for:
 - CSV and schema profile report exports
 """
 
-from typing import Dict, Any, List, Optional
-import io
+from typing import Dict, Any, Optional
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -158,7 +156,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         )
 
         if uploaded_file is None:
-            st.info("👆 Please upload a CSV file above to begin exploratory data profiling, or switch to Option A to explore the built-in Netflix catalog.")
+            st.info(" Please upload a CSV file above to begin exploratory data profiling, or switch to Option A to explore the built-in Netflix catalog.")
             return
 
         try:
@@ -215,7 +213,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             help="When checked, blank strings or whitespace-only cells in text columns are treated as missing for profiling and analysis without mutating the source DataFrame."
         )
     with m_col2:
-        st.caption(f"📁 **Active Dataset:** `{dataset_name}`")
+        st.caption(f"**Active Dataset:** `{dataset_name}`")
 
     # Compute overview metrics from active dataset
     overview = compute_overview_metrics(active_df, treat_empty_as_missing=treat_empty_as_missing)
@@ -249,7 +247,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         {
             "title": "Columns",
             "value": f"{overview['total_columns']:,}",
-            "subtext": f"{overview['numeric_cols_count']} num • {overview['categorical_cols_count']} cat • {overview['datetime_cols_count']} dt",
+            "subtext": f"{overview['numeric_cols_count']} num  {overview['categorical_cols_count']} cat  {overview['datetime_cols_count']} dt",
             "subtext_neutral": True,
             "accent_color": COLOR_VIOLET
         },
@@ -286,7 +284,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
     if is_filtered:
         st.info(
-            f"ℹ️ **Filtered View Active:** Row Count reflects the active filtered view (**{filtered_rows:,}** of {total_rows:,} records), "
+            f"**Filtered View Active:** Row Count reflects the active filtered view (**{filtered_rows:,}** of {total_rows:,} records), "
             f"while baseline quality indicators (duplicates, missing cells, memory) represent the complete source dataset (**{total_rows:,}** records)."
         )
 
@@ -296,11 +294,11 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # Detailed Explorer Workspace Subtabs
     # ------------------------------------------------------------------
     sub1, sub2, sub3, sub4, sub5 = st.tabs([
-        "📋 Column Schema & Data Dictionary",
-        "🔍 Missing-Value Audit & Visualizer",
-        "📊 Column Distributions & Deep Dive",
-        "🔎 Filter & Search Workspace",
-        "📑 Record Browser & Inspector"
+        "Column Schema & Data Dictionary",
+        "Missing-Value Audit & Visualizer",
+        "Column Distributions & Deep Dive",
+        "Filter & Search Workspace",
+        "Record Browser & Inspector"
     ])
 
     # ==================================================================
@@ -343,7 +341,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         with col_prof_btn:
             profile_csv_str = export_profile_csv(schema_df)
             st.download_button(
-                label="📥 Download Data Profile Report (CSV)",
+                label="Download Data Profile Report (CSV)",
                 data=profile_csv_str,
                 file_name=f"{dataset_name.replace(' ', '_').lower()}_data_profile.csv",
                 mime="text/csv",
@@ -389,7 +387,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             st.markdown("##### Missingness Distribution by Column")
             missing_cols_df = rankings_df[rankings_df["Missing Count"] > 0]
             if missing_cols_df.empty:
-                st.success("🎉 No missing values detected in any column! The dataset is 100% complete.")
+                st.success(" No missing values detected in any column! The dataset is 100% complete.")
             else:
                 bar_fig = px.bar(
                     missing_cols_df,
@@ -414,7 +412,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         else:
             if was_sampled:
                 st.caption(
-                    f"ℹ️ Displaying an evenly spaced systematic sample of 500 rows across all {total_recs:,} total records to ensure smooth rendering."
+                    f" Displaying an evenly spaced systematic sample of 500 rows across all {total_recs:,} total records to ensure smooth rendering."
                 )
             else:
                 st.caption(f"Displaying all {total_recs:,} rows in the matrix.")
@@ -440,11 +438,11 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 yaxis={"showticklabels": False},
             )
             st.plotly_chart(matrix_fig, use_container_width=True)
-            st.caption("🟦 Cyan = Present / Non-Null &nbsp;|&nbsp; 🟥 Red = Missing / Null")
+            st.caption(" Cyan = Present / Non-Null &nbsp;|&nbsp;  Red = Missing / Null")
 
         # Inspect Records with Missing Values
         st.markdown("##### Inspect Records with Missing Values")
-        with st.expander("🔍 Click to preview records containing missing values"):
+        with st.expander("Preview records with missing values"):
             cols_with_missing = rankings_df[rankings_df["Missing Count"] > 0]["Column"].tolist()
             if not cols_with_missing:
                 st.write("All records are 100% complete.")
@@ -565,7 +563,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
                     if cat_stats["is_high_cardinality"]:
                         st.info(
-                            f"ℹ️ High cardinality detected ({cat_stats['unique_count']:,} distinct values). Showing the top {top_n_slider} most frequent categories."
+                            f" High cardinality detected ({cat_stats['unique_count']:,} distinct values). Showing the top {top_n_slider} most frequent categories."
                         )
 
                     c_chart, c_tbl = st.columns([3, 2])
@@ -615,7 +613,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         st.dataframe(cat_matches.head(25), use_container_width=True)
 
                 # Optional Datetime Preview for String columns
-                with st.expander(f"🗓️ Preview Datetime Parsing for '{col_choice}' (Non-destructive)"):
+                with st.expander(f"Preview Datetime Parsing for '{col_choice}' (Non-destructive)"):
                     st.caption("Test if this string column can be parsed into calendar dates. Does not mutate the source dataset.")
                     dt_preview = preview_datetime_parsing(selected_series)
                     st.write(f"**Parse Success Rate:** `{dt_preview['success_rate_pct']}%` ({dt_preview['parsed_count']:,} valid dates, {dt_preview['failed_count']:,} unparseable)")
@@ -665,13 +663,13 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
         filter_status_col, reset_col = st.columns([3, 1])
         with filter_status_col:
             if is_filtered:
-                st.warning(f"⚠️ **Filters Active:** Showing **{filtered_rows:,}** of **{total_rows:,}** records ({round(filtered_rows / total_rows * 100, 1)}%)")
+                st.warning(f"**Filters Active:** Showing **{filtered_rows:,}** of **{total_rows:,}** records ({round(filtered_rows / total_rows * 100, 1)}%)")
             else:
-                st.success(f"✅ **No Filters Active:** Showing all **{total_rows:,}** records.")
+                st.success(f"**No Filters Active:** Showing all **{total_rows:,}** records.")
 
         with reset_col:
             st.button(
-                "🔄 Reset All Filters",
+                "Reset All Filters",
                 key="btn_reset_filters",
                 on_click=reset_explorer_filters_callback,
                 use_container_width=True,
@@ -682,7 +680,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
         # Global Search
         search_term = st.text_input(
-            "🔎 Global Search (across searchable text columns):",
+            " Global Search (across searchable text columns):",
             value=current_filters.get("global_search", ""),
             placeholder="Type any search query...",
             key="input_global_search"
@@ -693,7 +691,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             st.session_state["explorer_page_num"] = 1
 
         # Granular Filters in Expandable Columns (Numeric, Categorical, Datetime, Missingness)
-        with st.expander("⚙️ Advanced Column Filters (Numeric, Categorical, Datetime, Missingness)", expanded=True):
+        with st.expander("Advanced Column Filters", expanded=True):
             f_col1, f_col2, f_col3 = st.columns(3)
 
             # Left Column: Numeric Range & Missingness
@@ -763,7 +761,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         all_cat_vals = sorted(active_df[selected_cat_col].dropna().astype(str).str.strip().unique().tolist())
                         total_cats = len(all_cat_vals)
                         if total_cats > 50:
-                            st.caption(f"ℹ️ High cardinality: **{total_cats:,}** distinct values.")
+                            st.caption(f" High cardinality: **{total_cats:,}** distinct values.")
                             cat_search = st.text_input(
                                 f"Search values in '{selected_cat_col}':",
                                 key=f"cat_search_{selected_cat_col}",
@@ -844,7 +842,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         if not info["is_native"]:
                             pr = info["preview"]
                             st.caption(
-                                f"ℹ️ String dates: **{pr['success_rate_pct']}%** parseable "
+                                f" String dates: **{pr['success_rate_pct']}%** parseable "
                                 f"({pr['parsed_count']:,} valid, {pr['failed_count']:,} failed)."
                             )
                             use_temp = st.checkbox(
@@ -959,20 +957,20 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             # Pagination Navigation Buttons
             p_prev, p_info, p_next = st.columns([1, 2, 1])
             with p_prev:
-                if st.button("⬅️ Previous Page", disabled=(current_page <= 1), use_container_width=True):
+                if st.button("⬅ Previous Page", disabled=(current_page <= 1), use_container_width=True):
                     st.session_state["explorer_page_num"] = max(1, current_page - 1)
                     st.rerun()
 
             with p_info:
                 st.markdown(
                     f"<div style='text-align: center; padding-top: 6px; font-weight: 600; color: #F8FAFC;'>"
-                    f"Page {current_page} of {total_pages} &nbsp;|&nbsp; Showing records {((current_page - 1) * page_size) + 1:,}–{min(current_page * page_size, total_recs):,} of {total_recs:,}"
+                    f"Page {current_page} of {total_pages} &nbsp;|&nbsp; Showing records {((current_page - 1) * page_size) + 1:,}{min(current_page * page_size, total_recs):,} of {total_recs:,}"
                     f"</div>",
                     unsafe_allow_html=True
                 )
 
             with p_next:
-                if st.button("Next Page ➡️", disabled=(current_page >= total_pages), use_container_width=True):
+                if st.button("Next Page ", disabled=(current_page >= total_pages), use_container_width=True):
                     st.session_state["explorer_page_num"] = min(total_pages, current_page + 1)
                     st.rerun()
 
@@ -985,7 +983,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
             # Record Detail Inspector
             st.markdown("---")
-            st.markdown("##### 🔍 Individual Record Inspector")
+            st.markdown("##### Individual Record Inspector")
             st.caption("Inspect all fields for any specific record on the displayed page.")
 
             record_indices = list(page_slice.index)
@@ -1005,7 +1003,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 st.markdown(f"""
                     <div class="insight-box" style="margin-top: 10px;">
                         <div class="insight-title">
-                            <span>📄</span> Record Details (Index: {selected_record_idx})
+                            <span></span> Record Details (Index: {selected_record_idx})
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -1031,14 +1029,14 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             # Export Hub
             # ----------------------------------------------------------
             st.markdown("---")
-            st.markdown("##### 💾 Export Hub")
+            st.markdown("##### Export Hub")
             st.caption("Download the complete filtered dataset or profiling data dictionary.")
 
             d_col1, d_col2 = st.columns(2)
             with d_col1:
                 filtered_csv_str = export_filtered_csv(filtered_df)
                 st.download_button(
-                    label=f"📥 Download Filtered Data ({len(filtered_df):,} rows CSV)",
+                    label=f" Download Filtered Data ({len(filtered_df):,} rows CSV)",
                     data=filtered_csv_str,
                     file_name=f"{dataset_name.replace(' ', '_').lower()}_filtered_data.csv",
                     mime="text/csv",
@@ -1048,7 +1046,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             with d_col2:
                 profile_csv_str = export_profile_csv(schema_df)
                 st.download_button(
-                    label="📥 Download Dataset Schema Profile (CSV)",
+                    label=" Download Dataset Schema Profile (CSV)",
                     data=profile_csv_str,
                     file_name=f"{dataset_name.replace(' ', '_').lower()}_schema_profile.csv",
                     mime="text/csv",

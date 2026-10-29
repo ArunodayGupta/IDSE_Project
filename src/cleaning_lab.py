@@ -10,16 +10,10 @@ Independent of Streamlit for 100% automated test coverage.
 from typing import Dict, Any, List, Optional, Tuple, Union
 import json
 import io
-import math
 import numpy as np
 import pandas as pd
 
-from src.data_explorer import (
-    get_missing_mask,
-    classify_column_type,
-    compute_overview_metrics,
-    format_bytes,
-)
+from src.data_explorer import get_missing_mask
 
 
 def generate_data_quality_audit(

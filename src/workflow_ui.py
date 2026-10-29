@@ -11,27 +11,15 @@ Provides:
 - Seamless execution against active DataLab source or working copy.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 import io
-import json
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
 
 from .data_context import get_source_dataset, get_working_dataset
 from .operation_registry import list_operations_by_category, get_operation_spec
 from .workflow_engine import WorkflowPipeline, WorkflowStep, get_starter_workflows
-from src.ui_theme import (
-    render_page_header,
-    render_callout,
-    render_badge,
-    COLOR_CYAN,
-    COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_DANGER,
-    COLOR_VIOLET
-)
+from src.ui_theme import render_page_header
 
 
 def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
@@ -63,10 +51,10 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
             working_state_id = "netflix_catalog__initial"
 
     if source_df is None or source_df.empty:
-        st.warning("⚠️ No dataset loaded. Please load or select a dataset in **DataLab Explore**.")
+        st.warning(" No dataset loaded. Please load or select a dataset in **DataLab Explore**.")
         return
 
-    st.markdown("##### 📁 Workflow Input Dataset")
+    st.markdown("##### Workflow Input Dataset")
     ds_c1, ds_c2 = st.columns([2, 3])
     with ds_c1:
         data_source_mode = st.radio(
@@ -88,10 +76,10 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
 
     with ds_c2:
         if is_input_empty:
-            st.error(f"**Active Input:** `{source_name}` — **Empty (0 rows)**. Pipeline execution is disabled until data is restored.")
+            st.error(f"**Active Input:** `{source_name}`  **Empty (0 rows)**. Pipeline execution is disabled until data is restored.")
         else:
-            status_tag = f"✨ Working Copy ({len(active_input_df):,} rows × {active_input_df.shape[1]} cols)" if data_source_mode == "Clean & Transform Working Copy" else f"📄 Raw Source ({len(active_input_df):,} rows × {active_input_df.shape[1]} cols)"
-            st.info(f"**Pipeline Ingestion:** `{source_name}` — **{status_tag}** (ID: `{active_dataset_id[:24]}...`)")
+            status_tag = f" Working Copy ({len(active_input_df):,} rows × {active_input_df.shape[1]} cols)" if data_source_mode == "Clean & Transform Working Copy" else f" Raw Source ({len(active_input_df):,} rows × {active_input_df.shape[1]} cols)"
+            st.info(f"**Pipeline Ingestion:** `{source_name}`  **{status_tag}** (ID: `{active_dataset_id[:24]}...`)")
 
     st.markdown("---")
 
@@ -126,7 +114,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
     with m_col2:
         st.write("")
         st.write("")
-        if st.button("➕ New Blank", use_container_width=True):
+        if st.button("New Blank", use_container_width=True):
             new_wf = WorkflowPipeline(name="Custom Workflow")
             workflows_store[new_wf.pipeline_id] = new_wf
             st.session_state["workflow_studio_active_id"] = new_wf.pipeline_id
@@ -135,7 +123,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
     with m_col3:
         st.write("")
         st.write("")
-        if st.button("📋 Duplicate", use_container_width=True):
+        if st.button("Duplicate", use_container_width=True):
             dup_dict = current_pipeline.to_dict()
             dup_dict["name"] = f"{current_pipeline.name} (Copy)"
             dup_dict["pipeline_id"] = f"wf_{len(workflows_store)+1}"
@@ -149,7 +137,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
         st.write("")
         json_cfg = current_pipeline.to_json()
         st.download_button(
-            "📥 Export JSON",
+            "Export JSON",
             data=json_cfg,
             file_name=f"{current_pipeline.name.lower().replace(' ', '_')}.json",
             mime="application/json",
@@ -159,13 +147,13 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
     with m_col5:
         st.write("")
         st.write("")
-        if len(workflows_store) > 1 and st.button("🗑️ Delete", use_container_width=True):
+        if len(workflows_store) > 1 and st.button("Delete", use_container_width=True):
             del workflows_store[active_wf_id]
             st.session_state["workflow_studio_active_id"] = list(workflows_store.keys())[0]
             st.rerun()
 
     # JSON Import Accordion
-    with st.expander("📤 Import Workflow from JSON"):
+    with st.expander("Import Workflow from JSON"):
         uploaded_json = st.file_uploader("Upload Workflow JSON Schema:", type=["json"], key="wf_json_upload")
         if uploaded_json is not None:
             try:
@@ -187,33 +175,33 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
     canvas_col, config_col = st.columns([7, 5])
 
     with canvas_col:
-        st.markdown(f"### 🔗 Connected Workflow Canvas: *{current_pipeline.name}*")
+        st.markdown(f"### Connected Workflow Canvas: *{current_pipeline.name}*")
         st.caption(current_pipeline.description or "Click 'Add Step' to extend the pipeline, configure node parameters, and execute.")
 
         # Action Execution Bar
         exec_c1, exec_c2, exec_c3 = st.columns([2, 2, 2])
         with exec_c1:
-            run_all_btn = st.button("🚀 Run Complete Workflow", type="primary", use_container_width=True, disabled=is_input_empty)
+            run_all_btn = st.button("Run Complete Workflow", type="primary", use_container_width=True, disabled=is_input_empty)
         with exec_c2:
             is_valid, validation_errors = current_pipeline.validate_pipeline(active_input_df)
             if is_valid:
-                st.success("✅ Graph Valid (Acyclic & Compatible)")
+                st.success("Graph Valid (Acyclic & Compatible)")
             else:
-                st.error(f"⚠️ Validation Issues ({len(validation_errors)})")
+                st.error(f"Validation Issues ({len(validation_errors)})")
         with exec_c3:
             report_md = current_pipeline.export_audit_report()
-            st.download_button("📄 Download Audit Report", data=report_md, file_name=f"{current_pipeline.name}_audit.md", mime="text/markdown", use_container_width=True)
+            st.download_button("Download Audit Report", data=report_md, file_name=f"{current_pipeline.name}_audit.md", mime="text/markdown", use_container_width=True)
 
         if not is_valid:
             for err in validation_errors:
-                st.caption(f"❌ {err}")
+                st.caption(f" {err}")
 
         # Execute Pipeline on trigger
         if run_all_btn:
             with st.spinner("Executing workflow steps in topological order..."):
                 overall_ok, exec_log = current_pipeline.execute_all(active_input_df, dataset_identity=active_dataset_id)
                 if overall_ok:
-                    st.success("🎉 All workflow steps completed successfully!")
+                    st.success("All workflow steps completed successfully!")
                 else:
                     st.error("Workflow execution halted due to a step failure. See failed node below for details.")
 
@@ -228,19 +216,19 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
 
                 # Status Badge Styling
                 status_color = "#6C757D"
-                status_badge = "⚪ IDLE"
+                status_badge = "IDLE"
                 if step.status == "completed":
                     status_color = "#00D97E"
-                    status_badge = f"✅ COMPLETED ({step.execution_duration}s)"
+                    status_badge = f" COMPLETED ({step.execution_duration}s)"
                 elif step.status == "failed":
                     status_color = "#E50914"
-                    status_badge = "❌ FAILED"
+                    status_badge = "FAILED"
                 elif step.status == "running":
                     status_color = "#2C7BE5"
-                    status_badge = "⏳ RUNNING"
+                    status_badge = "RUNNING"
                 elif step.status == "invalidated":
                     status_color = "#FFA000"
-                    status_badge = "🕒 STALE / INVALIDATED"
+                    status_badge = " STALE / INVALIDATED"
 
                 # Render Step Card
                 st.markdown(f"""
@@ -264,37 +252,29 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
                 # Step Card Action Bar
                 btn_c1, btn_c2, btn_c3, btn_c4, btn_c5 = st.columns([2, 1, 1, 1, 2])
                 with btn_c1:
-                    if st.button("⚙️ Configure", key=f"btn_cfg_{s_id}", use_container_width=True):
+                    if st.button("Configure", key=f"btn_cfg_{s_id}", use_container_width=True):
                         st.session_state["wf_selected_step_id"] = s_id
                         st.rerun()
                 with btn_c2:
-                    if idx > 1 and st.button("⬆️", key=f"btn_up_{s_id}", help="Move Step Up"):
+                    if idx > 1 and st.button("Up", key=f"btn_up_{s_id}", help="Move Step Up"):
                         current_pipeline.move_step(s_id, -1)
                         st.rerun()
                 with btn_c3:
-                    if idx < len(current_pipeline.step_order) and st.button("⬇️", key=f"btn_dn_{s_id}", help="Move Step Down"):
+                    if idx < len(current_pipeline.step_order) and st.button("Down", key=f"btn_dn_{s_id}", help="Move Step Down"):
                         current_pipeline.move_step(s_id, 1)
                         st.rerun()
                 with btn_c4:
-                    if st.button("🗑️", key=f"btn_rm_{s_id}", help="Remove Step"):
+                    if st.button("", key=f"btn_rm_{s_id}", help="Remove Step"):
                         current_pipeline.remove_step(s_id)
                         st.rerun()
                 with btn_c5:
-                    if st.button("▶ Run Step", key=f"btn_run_single_{s_id}", use_container_width=True, disabled=is_input_empty):
+                    if st.button(" Run Step", key=f"btn_run_single_{s_id}", use_container_width=True, disabled=is_input_empty):
                         with st.spinner(f"Running step '{step.name}'..."):
                             current_pipeline.execute_step(s_id, initial_df=active_input_df, dataset_identity=active_dataset_id)
                             st.rerun()
 
                 if step.error_message:
-                    st.error(f"⚠️ Error: {step.error_message}")
-
-                # Connector Arrow down to next step
-                if idx < len(current_pipeline.step_order):
-                    st.markdown("""
-                        <div style="text-align: center; color: #ADB5BD; font-size: 1.1rem; margin: -6px 0 6px 0;">
-                            ↓
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.error(f"Error: {step.error_message}")
 
     # ------------------------------------------------------------------
     # Step 4: Node Configuration & Palette Drawer
@@ -304,11 +284,11 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
         selected_step: Optional[WorkflowStep] = current_pipeline.steps.get(selected_step_id) if selected_step_id else None
 
         if selected_step:
-            st.markdown(f"### ⚙️ Configure Step: *{selected_step.name}*")
+            st.markdown(f"### Configure Step: *{selected_step.name}*")
             spec = get_operation_spec(selected_step.op_type)
             if spec:
-                st.caption(f"**Category:** {spec.category} • *{spec.description}*")
-                st.info(f"💡 **Data Science Principle:** {spec.explanation}")
+                st.caption(f"**Category:** {spec.category}  *{spec.description}*")
+                st.info(f"**Data Science Principle:** {spec.explanation}")
 
             # Step Name Editor
             new_step_name = st.text_input("Step Name:", value=selected_step.name, key=f"inp_sname_{selected_step.step_id}")
@@ -358,7 +338,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
                 key=f"ms_deps_{selected_step.step_id}"
             )
 
-            if st.button("💾 Apply Configuration & Invalidate Downstream", type="primary", use_container_width=True):
+            if st.button("Apply Configuration & Invalidate Downstream", type="primary", use_container_width=True):
                 selected_step.dependencies = chosen_deps
                 current_pipeline.update_step_params(selected_step.step_id, new_params=new_params, new_name=new_step_name)
                 st.success("Configuration applied! Dependent downstream nodes marked for re-execution.")
@@ -369,7 +349,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
         # --------------------------------------------------------------
         # Operation Palette: Add Step Node
         # --------------------------------------------------------------
-        st.markdown("### ➕ Add Step to Workflow")
+        st.markdown("### Add Step to Workflow")
         st.caption("Select an operation from the categorized DataLab operation registry to append to this workflow:")
 
         categorized_ops = list_operations_by_category()
@@ -379,7 +359,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
         selected_op_spec = st.selectbox(
             "Select Operation:",
             options=cat_specs,
-            format_func=lambda s: f"{s.name} — {s.description[:40]}...",
+            format_func=lambda s: f"{s.name}  {s.description[:40]}...",
             key="sb_palette_op"
         )
 
@@ -408,7 +388,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
     # Step 5: What Changed? / Output Inspection
     # ------------------------------------------------------------------
     st.markdown("---")
-    st.markdown("### 🔬 Step Output & 'What Changed?' Inspector")
+    st.markdown("### Step Output & 'What Changed?' Inspector")
     st.caption("Inspect the actual data deltas, new columns, or model metrics produced by executed steps.")
 
     completed_steps = [current_pipeline.steps[s_id] for s_id in current_pipeline.step_order if current_pipeline.steps[s_id].status == "completed"]
@@ -426,7 +406,7 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
 
         # Case A: Supervised ML Step Scorecard (Defect C6)
         if inspected_step.op_type == "ml_supervised_train" and inspected_step.output_model_result:
-            st.markdown("#### 🎯 Machine Learning Model Scorecard")
+            st.markdown("#### Machine Learning Model Scorecard")
             m_res = inspected_step.output_model_result
             m_col1, m_col2, m_col3, m_col4 = st.columns(4)
             m_col1.metric("Model", m_res["model_name"].title())
@@ -439,31 +419,31 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
 
         # Case B: Recommender Query Results (Defect C6)
         elif inspected_step.op_type == "recommender_query" and inspected_step.output_model_result:
-            st.markdown("#### 🎬 Recommender Results Scorecard")
+            st.markdown("#### Recommender Results Scorecard")
             r_res = inspected_step.output_model_result
-            st.write(f"**Query Item:** `{r_res['query_title']}` • **Vocabulary Size:** `{r_res['vocab_size']:,}` terms • **Latency:** `{r_res['query_duration_sec']}s`")
+            st.write(f"**Query Item:** `{r_res['query_title']}`  **Vocabulary Size:** `{r_res['vocab_size']:,}` terms  **Latency:** `{r_res['query_duration_sec']}s`")
             if inspected_step.output_df is not None:
                 st.dataframe(inspected_step.output_df, use_container_width=True)
 
         # Case C: Pure Data Transformation & What Changed? (Defect C6)
         elif inspected_step.what_changed:
-            st.markdown("#### 📊 Transformation Delta Ledger")
+            st.markdown("#### Transformation Delta Ledger")
             diff = inspected_step.what_changed
 
             d1, d2, d3, d4 = st.columns(4)
-            d1.metric("Rows Before → After", f"{diff['rows_before']:,} → {diff['rows_after']:,}", delta=f"{diff['rows_delta']:,} rows")
+            d1.metric("Rows Before  After", f"{diff['rows_before']:,}  {diff['rows_after']:,}", delta=f"{diff['rows_delta']:,} rows")
             d2.metric("Columns Added", f"{len(diff['columns_added'])}", delta=", ".join(diff['columns_added'][:3]) if diff['columns_added'] else "None")
             d3.metric("Columns Removed", f"{len(diff['columns_removed'])}", delta=", ".join(diff['columns_removed'][:3]) if diff['columns_removed'] else "None")
             d4.metric("Missing Cells Delta", f"{diff['missing_cells_delta']:,}")
 
             if inspected_step.output_df is not None:
-                st.markdown("##### 📄 Output DataFrame Preview (Top 15 Rows)")
+                st.markdown("##### Output DataFrame Preview (Top 15 Rows)")
                 st.dataframe(inspected_step.output_df.head(15), use_container_width=True)
 
                 csv_step = io.StringIO()
                 inspected_step.output_df.to_csv(csv_step, index=False)
                 st.download_button(
-                    label=f"📥 Download Step #{inspected_step.name} Output (CSV)",
+                    label=f" Download Step #{inspected_step.name} Output (CSV)",
                     data=csv_step.getvalue(),
                     file_name=f"step_{inspected_step.step_id}_output.csv",
                     mime="text/csv"
