@@ -15,7 +15,7 @@ Built with pure Python, **Streamlit**, **Plotly**, and **Scikit-Learn**, powered
 
 ## 📌 Primary Navigation & System Architecture
 
-The application is structured into **6 canonical workspaces**:
+The application is structured into **6 canonical workspaces** navigated via an active-workspace sidebar dispatcher that renders only the currently selected workspace:
 
 ```text
 ├── 🔬 Explore Dataset       # Phase 1: Schema profiling, missingness audit, distributions, filters
@@ -32,15 +32,16 @@ The application is structured into **6 canonical workspaces**:
 
 ```text
 IDSE_Project/
+├── netflix_titles.csv              # Tracked canonical Kaggle Netflix catalog (8,807 titles)
 ├── data/
-│   ├── .gitkeep
-│   └── netflix_titles.csv          # Verified Kaggle Netflix catalog (8,807 titles)
+│   └── .gitkeep                    # Directory preserved for user data exports and fallbacks
 ├── src/
 │   ├── __init__.py                 # Lightweight exports with lazy UI loading
+│   ├── ui_theme.py                 # Central design system: tokens, custom CSS stylesheet & Plotly theme
 │   ├── data_context.py             # Canonical dataset state, revision tracking & stale detection
 │   ├── operation_registry.py       # Allowlisted operation registry, schema specs & validation rules
-│   ├── data_generator.py           # Robust dataset presence & path verification
-│   ├── data_cleaner.py             # Legacy data cleaning & missing value audit ledger
+│   ├── data_generator.py           # Canonical dataset presence & path verification
+│   ├── data_cleaner.py             # Domain data cleaning & missing value audit ledger
 │   ├── data_explorer.py            # Phase 1: Core profiling, schema, missingness & filtering engine
 │   ├── explorer_ui.py              # Phase 1: Streamlit UI components & visualizer
 │   ├── cleaning_lab.py             # Phase 2: WorkingDatasetManager, What Changed?, JSON replay
@@ -51,19 +52,21 @@ IDSE_Project/
 │   ├── workflow_ui.py              # Phase 4: Workflow Studio visual canvas, stage inspector & JSON hub
 │   ├── missions.py                 # Phase 4: 7-mission curriculum, evidence verification & reflections
 │   ├── missions_ui.py              # Phase 4: Mission Mode UI, layered hints & progress tracking
+│   ├── netflix_case_study_ui.py    # Dedicated Netflix executive analytics, local slicers & insights
 │   ├── feature_engineer.py         # Licensing lag, audience tiers, exploders & metadata soup
 │   ├── model_trainer.py            # Legacy ContentRecommender engine with memory-safe sparse accessor
-│   └── visualizations.py           # Bespoke Plotly corporate visualization engine
+│   └── visualizations.py           # Plotly visualization engine styled with corporate dark theme
 ├── tests/
 │   ├── __init__.py
 │   ├── test_data_explorer.py       # Phase 1 unit tests (19 tests)
 │   ├── test_cleaning_lab.py        # Phase 2 unit & regression tests (26 tests)
 │   ├── test_model_lab.py           # Phase 3 unit & regression tests (23 tests)
 │   ├── test_workflow.py            # Phase 4 Workflow Studio test suite (10 tests)
-│   └── test_missions.py            # Phase 4 Data Scientist Missions test suite (10 tests)
+│   ├── test_missions.py            # Phase 4 Data Scientist Missions test suite (10 tests)
+│   └── test_refactor_regression.py # Architecture cleanup & UI redesign test suite (5 tests)
 ├── notebooks/
 │   └── exploratory_analysis.ipynb  # Narrative exploratory notebook
-├── app.py                          # Streamlit application entry point
+├── app.py                          # Streamlit application entry point (navigation & routing)
 ├── requirements.txt                # Pinned production dependencies
 └── README.md                       # Comprehensive architecture & documentation
 ```
@@ -102,7 +105,18 @@ The application opens in your default browser at `http://localhost:8501`.
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
-**All 96 automated tests run and pass cleanly** across all 5 test suites.
+**All 101 automated tests run and pass cleanly** across all 6 test suites.
+
+---
+
+## 🎨 Modern Analytics Workspace Design System (`src/ui_theme.py`)
+
+DataLab has been completely redesigned with a cohesive, modern analytics workspace aesthetic:
+- **Surface Palette:** Deep midnight-navy (`#0B0F19`) canvas with elevated dark panels (`#141C2E`, `#0E1424`) and subtle geometric borders (`#1E2B44`).
+- **Accents:** Electric cyan (`#00D2FF`) and sky blue (`#38BDF8`) primary accents; restrained violet (`#818CF8`) secondary; emerald green (`#10B981`) reserved strictly for successful runs and completed missions.
+- **Typography & Components:** High-contrast Inter typography, elevated metric cards with cyan top accents, status pills, and callout containers.
+- **Unified Plotly Theme:** Centralized `apply_figure_theme()` ensuring all visualizations share transparent backdrops, subtle gridlines, and coordinated colors.
+- **Execution Efficiency:** Replaced full-page multi-tab execution with active-workspace dispatch in `app.py`, ensuring only the selected workspace is evaluated during interaction.
 
 ---
 
@@ -205,7 +219,7 @@ A guided learning track consisting of **7 progressive, evidence-based missions**
 
 ---
 
-## 🎬 Netflix Content Strategy Case Study (`app.py`, `src/visualizations.py`)
+## 🎬 Netflix Content Strategy Case Study (`src/netflix_case_study_ui.py`, `src/visualizations.py`)
 
 Retained as a dedicated executive case study analyzing Netflix's transformation into a global streaming powerhouse:
 
@@ -238,6 +252,7 @@ python -m unittest tests/test_cleaning_lab.py -v
 python -m unittest tests/test_model_lab.py -v
 python -m unittest tests/test_workflow.py -v
 python -m unittest tests/test_missions.py -v
+python -m unittest tests/test_refactor_regression.py -v
 ```
 
 ### Verified Regressions & Defect Fixes:

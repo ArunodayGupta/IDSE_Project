@@ -28,12 +28,28 @@ from src.cleaning_lab import (
     generate_data_quality_audit,
     WorkingDatasetManager,
 )
+from src.data_context import (
+    get_source_dataset,
+    set_source_dataset,
+    get_working_dataset_manager,
+    set_working_dataset_manager
+)
+from src.ui_theme import (
+    render_page_header,
+    render_callout,
+    render_badge,
+    COLOR_CYAN,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    COLOR_VIOLET
+)
 
-PRIMARY_COLOR = "#2C7BE5"
-ACCENT_COLOR = "#6EA8FE"
-SUCCESS_COLOR = "#00D97E"
-DANGER_COLOR = "#E63757"
-TEXT_COLOR = "#2B3035"
+PRIMARY_COLOR = COLOR_CYAN
+ACCENT_COLOR = COLOR_VIOLET
+SUCCESS_COLOR = COLOR_SUCCESS
+DANGER_COLOR = COLOR_DANGER
+TEXT_COLOR = "#F8FAFC"
 
 
 def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
@@ -43,18 +59,16 @@ def _render_what_changed_card(comparison: Dict[str, Any]) -> None:
     status = comparison.get("status", "completed").upper()
     is_preview = status == "PREVIEW"
 
-    badge_bg = "#FFF8E6" if is_preview else "#E6FBF2"
-    badge_color = "#D97706" if is_preview else "#00D97E"
-    badge_border = "#FCD34D" if is_preview else "#A6F4D0"
-    border_left = "#D97706" if is_preview else "#00D97E"
+    badge_type = "warning" if is_preview else "success"
+    border_left = COLOR_WARNING if is_preview else COLOR_SUCCESS
 
     st.markdown(f"""
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid {border_left}; border-radius: 8px; padding: 18px 20px; margin: 16px 0;">
+        <div class="insight-box" style="border-left-color: {border_left}; margin: 16px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                <div style="font-size: 1.15rem; font-weight: 700; color: #2B3035;">
+                <div class="insight-title" style="color: {border_left}; margin: 0;">
                     🔍 What Changed? — {op_name}
                 </div>
-                <span style="font-size: 0.8rem; font-weight: 600; background: {badge_bg}; color: {badge_color}; padding: 4px 10px; border-radius: 4px; border: 1px solid {badge_border};">
+                <span class="badge-pill {badge_type}">
                     {status}
                 </span>
             </div>
@@ -140,31 +154,17 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
     """
     Main entry point for the Clean & Transform Lab Streamlit tab.
     """
-    st.markdown("""
-        <div style="margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                <div>
-                    <h2 style="font-weight: 700; font-size: 1.85rem; color: #2B3035; margin-bottom: 2px;">
-                        🧹 DataLab — Clean & Transform Lab
-                    </h2>
-                    <p style="color: #6C757D; font-size: 0.95rem; margin-top: 0px;">
-                        Interactive data cleaning, feature engineering, and transformation workbench.
-                        Preview operations, inspect real consequences with the <b>What Changed?</b> engine, and export reproducible workflows.
-                    </p>
-                </div>
-                <span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; background-color: #E7F1FF; color: #2C7BE5; border: 1px solid #B6D4FE;">
-                    PHASE 2: CLEAN & TRANSFORM
-                </span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_page_header(
+        title="Clean & Transform Lab",
+        subtitle="Interactive data cleaning, feature engineering, and transformation workbench with What Changed? inspection.",
+        badge="Working State",
+        badge_type="info"
+    )
 
     # ------------------------------------------------------------------
-    # Retrieve or Initialize Shared Dataset State
+    # Retrieve or Initialize Shared Dataset State via Canonical Context
     # ------------------------------------------------------------------
-    shared_source_df = st.session_state.get("datalab_source_data")
-    source_identity = st.session_state.get("datalab_source_identity", "")
-    source_name = st.session_state.get("datalab_source_name", "Built-in Netflix Catalog")
+    shared_source_df, source_identity, source_name = get_source_dataset()
 
     if shared_source_df is None or shared_source_df.empty:
         # Fallback to netflix_raw_df if available
@@ -172,32 +172,30 @@ def render_cleaning_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> No
             shared_source_df = netflix_raw_df.copy()
             source_name = "Built-in Netflix Catalog"
             source_identity = compute_dataset_identity(shared_source_df, source_name=source_name)
-            st.session_state["datalab_source_data"] = shared_source_df
-            st.session_state["datalab_source_identity"] = source_identity
-            st.session_state["datalab_source_name"] = source_name
+            set_source_dataset(shared_source_df, source_identity, source_name)
         else:
-            st.info("👆 Please select or upload a dataset in the **🔬 DataLab: Explore Dataset** tab to begin cleaning and transformation.")
+            st.info("👆 Please select or upload a dataset in **🔬 Explore Dataset** to begin cleaning and transformation.")
             return
 
     # Initialize or reset WorkingDatasetManager if source changed
-    current_manager: Optional[WorkingDatasetManager] = st.session_state.get("datalab_working_manager")
-    if current_manager is None or current_manager.source_identity != source_identity:
+    current_manager = get_working_dataset_manager()
+    if current_manager is None or getattr(current_manager, "source_identity", "") != source_identity:
         current_manager = WorkingDatasetManager(
             source_df=shared_source_df,
             source_identity=source_identity,
             source_name=source_name
         )
-        st.session_state["datalab_working_manager"] = current_manager
+        set_working_dataset_manager(current_manager)
 
     # Workspace Header Banner
     step_count = len(current_manager.history)
     b_col1, b_col2, b_col3 = st.columns([2, 1, 1])
     with b_col1:
-        st.markdown(f"📁 **Active Source Dataset:** `{source_name}` &nbsp;|&nbsp; `{len(current_manager.source_df):,} rows × {current_manager.source_df.shape[1]} cols`")
+        st.markdown(f"📁 **Source Catalog:** `{source_name}` &nbsp;|&nbsp; `{len(current_manager.source_df):,} rows × {current_manager.source_df.shape[1]} cols`")
     with b_col2:
         st.markdown(f"⚙️ **Working Copy:** `{len(current_manager.working_df):,} rows × {current_manager.working_df.shape[1]} cols`")
     with b_col3:
-        status_color = "#00D97E" if step_count > 0 else "#6C757D"
+        status_color = COLOR_CYAN if step_count > 0 else "#64748B"
         st.markdown(f"📜 **Transformations Applied:** <b style='color: {status_color};'>{step_count} step{'s' if step_count != 1 else ''}</b>", unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)

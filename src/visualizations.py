@@ -22,81 +22,83 @@ from plotly.subplots import make_subplots
 from .feature_engineer import explode_column
 
 
-# Corporate Design System Constants (Blue, White, and Grey Palette)
-PRIMARY_BLUE = "#2C7BE5"
-LIGHT_BLUE = "#6EA8FE"
-NAVY_BLUE = "#0D6EFD"
-SLATE_GREY = "#6C757D"
-DARK_SLATE = "#2B3035"
-LIGHT_GREY = "#E9ECEF"
-BORDER_GREY = "#DEE2E6"
-CARD_BG = "#FFFFFF"
-TEXT_MAIN = "#2B3035"
-TEXT_MUTED = "#6C757D"
-GRID_COLOR = "#E9ECEF"
+# Modern Dark Analytics Palette Tokens (Electric Cyan, Blue, Violet, and Midnight Navy)
+PRIMARY_BLUE = "#00D2FF"
+LIGHT_BLUE = "#38BDF8"
+NAVY_BLUE = "#818CF8"
+SLATE_GREY = "#64748B"
+DARK_SLATE = "#F8FAFC"
+LIGHT_GREY = "#1E2B44"
+BORDER_GREY = "#223147"
+CARD_BG = "#141C2E"
+TEXT_MAIN = "#F8FAFC"
+TEXT_MUTED = "#94A3B8"
+GRID_COLOR = "#1E2B44"
 
-# Backward-compatibility aliases if referenced elsewhere
+# Backward-compatibility aliases
 NETFLIX_RED = PRIMARY_BLUE
 NETFLIX_CRIMSON = NAVY_BLUE
-TEXT_WHITE = DARK_SLATE
+TEXT_WHITE = "#FFFFFF"
 
 AUDIENCE_COLOR_MAP = {
     "Mature / Adults": PRIMARY_BLUE,
-    "Family / Teens": LIGHT_BLUE,
-    "Kids": SLATE_GREY
+    "Family / Teens": NAVY_BLUE,
+    "Kids": LIGHT_BLUE
 }
 
 ORIGIN_COLOR_MAP = {
     "Same-Year (Original/Exclusive Proxy)": PRIMARY_BLUE,
-    "Recent Release (1-3 Yrs)": LIGHT_BLUE,
+    "Recent Release (1-3 Yrs)": NAVY_BLUE,
     "Back-Catalog (>3 Yrs)": SLATE_GREY
 }
 
 
 def _apply_corporate_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.Figure:
-    """Helper to apply consistent modern corporate light BI styling to any Plotly figure."""
+    """Helper to apply consistent modern dark analytics styling to any Plotly figure."""
     fig.update_layout(
         title={
             "text": f"<b>{title}</b>" if title else "",
             "y": 0.95,
-            "x": 0.03,
+            "x": 0.02,
             "xanchor": "left",
             "yanchor": "top",
-            "font": {"size": 14, "color": DARK_SLATE, "family": "Inter, Segoe UI, sans-serif"}
+            "font": {"size": 14, "color": TEXT_MAIN, "family": "Inter, Segoe UI, sans-serif"}
         },
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         height=height,
-        margin={"l": 40, "r": 20, "t": 50, "b": 80},
-        font={"family": "Inter, Segoe UI, sans-serif", "color": DARK_SLATE, "size": 12},
+        margin={"l": 45, "r": 25, "t": 50 if title else 30, "b": 75},
+        font={"family": "Inter, Segoe UI, sans-serif", "color": TEXT_MUTED, "size": 12},
         legend={
             "orientation": "h",
             "yanchor": "top",
-            "y": -0.2,
+            "y": -0.18,
             "xanchor": "center",
             "x": 0.5,
-            "bgcolor": "rgba(255, 255, 255, 0.9)",
+            "bgcolor": "rgba(20, 28, 46, 0.75)",
             "bordercolor": BORDER_GREY,
             "borderwidth": 1,
-            "font": {"color": DARK_SLATE, "size": 11}
+            "font": {"color": TEXT_MAIN, "size": 11}
         },
         hoverlabel={
             "bgcolor": CARD_BG,
             "font_size": 12,
             "font_family": "Inter, Segoe UI, sans-serif",
-            "font_color": DARK_SLATE,
+            "font_color": TEXT_MAIN,
             "bordercolor": BORDER_GREY
         }
     )
     fig.update_xaxes(
-        gridcolor=LIGHT_GREY,
-        zerolinecolor=LIGHT_GREY,
-        tickfont={"color": SLATE_GREY}
+        gridcolor=GRID_COLOR,
+        zerolinecolor=GRID_COLOR,
+        tickfont={"color": TEXT_MUTED, "size": 11},
+        linecolor=BORDER_GREY
     )
     fig.update_yaxes(
-        gridcolor=LIGHT_GREY,
-        zerolinecolor=LIGHT_GREY,
-        tickfont={"color": SLATE_GREY}
+        gridcolor=GRID_COLOR,
+        zerolinecolor=GRID_COLOR,
+        tickfont={"color": TEXT_MUTED, "size": 11},
+        linecolor=BORDER_GREY
     )
     return fig
 

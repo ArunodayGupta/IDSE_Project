@@ -84,19 +84,19 @@ def compute_dataset_identity(
 def resolve_builtin_netflix_path() -> str:
     """
     Resolves the absolute path to the repository's built-in Netflix catalog CSV.
-    Checks data/netflix_titles.csv and project root fallbacks.
+    Checks the canonical tracked project root netflix_titles.csv first, then data/netflix_titles.csv fallback.
     """
     root = get_project_root()
     candidates = [
-        root / "data" / "netflix_titles.csv",
         root / "netflix_titles.csv",
-        Path("data/netflix_titles.csv"),
+        root / "data" / "netflix_titles.csv",
         Path("netflix_titles.csv"),
+        Path("data/netflix_titles.csv"),
     ]
     for c in candidates:
         if c.exists():
             return str(c.resolve())
-    raise FileNotFoundError("Built-in netflix_titles.csv not found in data/ or project root.")
+    raise FileNotFoundError("Built-in netflix_titles.csv not found in project root or data/.")
 
 
 

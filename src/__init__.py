@@ -86,6 +86,7 @@ _UI_EXPORTS = {
     "render_workflow_studio_tab": ("src.workflow_ui", "render_workflow_studio_tab"),
     "render_model_lab_tab": ("src.model_lab_ui", "render_model_lab_tab"),
     "render_missions_tab": ("src.missions_ui", "render_missions_tab"),
+    "render_netflix_case_study_tab": ("src.netflix_case_study_ui", "render_netflix_case_study_tab"),
 }
 
 def __getattr__(name: str):
@@ -162,4 +163,5 @@ __all__ = [
     "render_workflow_studio_tab",
     "render_model_lab_tab",
     "render_missions_tab",
+    "render_netflix_case_study_tab",
 ]

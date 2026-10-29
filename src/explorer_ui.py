@@ -41,53 +41,33 @@ from src.data_explorer import (
     export_profile_csv,
     format_bytes,
 )
+from src.ui_theme import (
+    render_page_header,
+    render_kpi_row,
+    render_callout,
+    apply_figure_theme,
+    COLOR_CYAN,
+    COLOR_VIOLET,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER
+)
 
-# Plotly theme styling constants
-PRIMARY_COLOR = "#2C7BE5"
-ACCENT_COLOR = "#6EA8FE"
-SLATE_COLOR = "#6C757D"
-DARK_TEXT = "#2B3035"
-LIGHT_BG = "#FFFFFF"
-CARD_BORDER = "#E2E8F0"
-GRID_COLOR = "#E9ECEF"
-MISSING_COLOR = "#E63757"
-PRESENT_COLOR = "#2C7BE5"
+# Plotly theme styling constants (modern dark analytics palette)
+PRIMARY_COLOR = COLOR_CYAN
+ACCENT_COLOR = COLOR_VIOLET
+SLATE_COLOR = "#64748B"
+DARK_TEXT = "#F8FAFC"
+LIGHT_BG = "rgba(0,0,0,0)"
+CARD_BORDER = "#1E2B44"
+GRID_COLOR = "#1E2B44"
+MISSING_COLOR = COLOR_DANGER
+PRESENT_COLOR = COLOR_CYAN
 
 
 def _apply_plotly_style(fig: go.Figure, title: str = "", height: int = 400) -> go.Figure:
-    """Applies clean, responsive styling to Plotly figures."""
-    fig.update_layout(
-        title={
-            "text": f"<b>{title}</b>" if title else "",
-            "font": {"size": 15, "color": DARK_TEXT, "family": "Inter, sans-serif"},
-            "x": 0.02,
-            "y": 0.95,
-        },
-        height=height,
-        paper_bgcolor=LIGHT_BG,
-        plot_bgcolor=LIGHT_BG,
-        margin={"l": 40, "r": 30, "t": 50, "b": 40},
-        font={"color": DARK_TEXT, "family": "Inter, sans-serif"},
-        xaxis={
-            "gridcolor": GRID_COLOR,
-            "zerolinecolor": GRID_COLOR,
-            "linecolor": CARD_BORDER,
-            "tickfont": {"size": 11, "color": DARK_TEXT},
-        },
-        yaxis={
-            "gridcolor": GRID_COLOR,
-            "zerolinecolor": GRID_COLOR,
-            "linecolor": CARD_BORDER,
-            "tickfont": {"size": 11, "color": DARK_TEXT},
-        },
-        hoverlabel={
-            "bgcolor": "#1E293B",
-            "font_size": 12,
-            "font_family": "Inter, sans-serif",
-            "font_color": "#FFFFFF",
-        },
-    )
-    return fig
+    """Applies unified modern dark analytics styling to Plotly figures."""
+    return apply_figure_theme(fig, title=title, height=height)
 
 
 def reset_explorer_filters_callback() -> None:
@@ -124,26 +104,12 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # ------------------------------------------------------------------
     # Explorer Header
     # ------------------------------------------------------------------
-    h_col1, h_col2 = st.columns([3, 1])
-    with h_col1:
-        st.markdown("""
-            <div style="margin-bottom: 8px;">
-                <h2 style="font-weight: 700; font-size: 1.85rem; color: #2B3035; margin-bottom: 2px;">
-                    🔬 DataLab — Interactive Dataset Explorer
-                </h2>
-                <p style="color: #6C757D; font-size: 0.95rem; margin-top: 0px;">
-                    Inspect data quality, profile schema, discover distributions, execute multi-condition filters, investigate individual records, and export findings.
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-    with h_col2:
-        st.markdown("""
-            <div style="text-align: right; padding-top: 8px;">
-                <span style="display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; background-color: #E7F1FF; color: #2C7BE5; border: 1px solid #B6D4FE;">
-                    PHASE 1: EXPLORER
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
+    render_page_header(
+        title="Interactive Dataset Explorer",
+        subtitle="Inspect schema quality, discover distributions, execute multi-condition filters, and investigate records.",
+        badge="Dataset Profile",
+        badge_type="info"
+    )
 
     # ------------------------------------------------------------------
     # Dataset Source Selection & Loading
@@ -166,11 +132,10 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
     if "Option A" in source_choice:
         try:
+            resolved_path = resolve_builtin_netflix_path()
             if netflix_raw_df is not None and not netflix_raw_df.empty:
                 active_df = netflix_raw_df.copy()
-                resolved_path = "data/netflix_titles.csv"
             else:
-                resolved_path = resolve_builtin_netflix_path()
                 active_df, _ = load_csv_from_file_or_bytes(resolved_path, filename="netflix_titles.csv")
             dataset_name = "Built-in Netflix Catalog"
             current_sig = compute_dataset_identity(active_df, source_type="builtin", resolved_path=resolved_path)
@@ -273,73 +238,51 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     # Overview KPI Cards
     # ------------------------------------------------------------------
     st.markdown("### 2. Dataset Overview Dashboard")
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-
-    with k1:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Row Count</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{filtered_rows:,}</div>
-                <div class="{'metric-sub' if is_filtered else 'metric-sub-neutral'}" style="font-size: 0.78rem;">
-                    {f"Filtered from {total_rows:,}" if is_filtered else f"{total_rows:,} total rows"}
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with k2:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Columns</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{overview['total_columns']:,}</div>
-                <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    {overview['numeric_cols_count']} num • {overview['categorical_cols_count']} cat • {overview['datetime_cols_count']} dt
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with k3:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Duplicate Rows (Full)</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{overview['duplicate_rows']:,}</div>
-                <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    {overview['duplicate_rows_pct']}% of full dataset
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with k4:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Missing Cells (Full)</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{overview['total_missing_cells']:,}</div>
-                <div class="metric-sub" style="font-size: 0.78rem;">
-                    {overview['missing_cells_pct']}% of full dataset
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with k5:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Complete Rows (Full)</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{overview['complete_rows']:,}</div>
-                <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    {overview['complete_rows_pct']}% zero-null records
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with k6:
-        st.markdown(f"""
-            <div class="metric-card" style="padding: 14px 16px;">
-                <div class="metric-title">Memory Size (Full)</div>
-                <div class="metric-value" style="font-size: 1.8rem;">{overview['memory_usage_str']}</div>
-                <div class="metric-sub-neutral" style="font-size: 0.78rem;">
-                    Source catalog memory
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+    overview_cards = [
+        {
+            "title": "Row Count",
+            "value": f"{filtered_rows:,}",
+            "subtext": f"Filtered from {total_rows:,}" if is_filtered else f"{total_rows:,} total rows",
+            "subtext_neutral": not is_filtered,
+            "accent_color": COLOR_CYAN if is_filtered else COLOR_SUCCESS
+        },
+        {
+            "title": "Columns",
+            "value": f"{overview['total_columns']:,}",
+            "subtext": f"{overview['numeric_cols_count']} num • {overview['categorical_cols_count']} cat • {overview['datetime_cols_count']} dt",
+            "subtext_neutral": True,
+            "accent_color": COLOR_VIOLET
+        },
+        {
+            "title": "Duplicate Rows",
+            "value": f"{overview['duplicate_rows']:,}",
+            "subtext": f"{overview['duplicate_rows_pct']}% of full dataset",
+            "subtext_neutral": True,
+            "accent_color": COLOR_CYAN
+        },
+        {
+            "title": "Missing Cells",
+            "value": f"{overview['total_missing_cells']:,}",
+            "subtext": f"{overview['missing_cells_pct']}% of full dataset",
+            "subtext_neutral": False,
+            "accent_color": COLOR_WARNING if overview['total_missing_cells'] > 0 else COLOR_SUCCESS
+        },
+        {
+            "title": "Complete Rows",
+            "value": f"{overview['complete_rows']:,}",
+            "subtext": f"{overview['complete_rows_pct']}% zero-null records",
+            "subtext_neutral": True,
+            "accent_color": COLOR_SUCCESS
+        },
+        {
+            "title": "Memory Size",
+            "value": overview['memory_usage_str'],
+            "subtext": "Active catalog memory",
+            "subtext_neutral": True,
+            "accent_color": COLOR_VIOLET
+        }
+    ]
+    render_kpi_row(overview_cards)
 
     if is_filtered:
         st.info(
@@ -413,16 +356,15 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     with sub2:
         st.markdown("#### Missing-Value Analysis & Visualizer")
 
-        st.markdown("""
-            <div class="insight-box" style="margin-top: 4px; margin-bottom: 16px;">
-                <div class="insight-title">Understanding Missingness Patterns</div>
-                <div class="insight-body">
-                    A missing value indicates that an individual cell lacks data. This is distinct from entirely empty rows.
-                    High missingness (>20% or >50%) often indicates optional fields, medium-specific conventions (e.g. episodic TV showrunners vs. movie directors),
-                    or localized catalog variations.
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        render_callout(
+            title="Understanding Missingness Patterns",
+            body=(
+                "A missing value indicates that an individual cell lacks data, distinct from empty rows. "
+                "High missingness (>20% or >50%) often indicates optional fields, format conventions "
+                "(such as episodic television rotating directors), or localized variations."
+            ),
+            callout_type="info"
+        )
 
         rankings_df = compute_missing_rankings(active_df, treat_empty_as_missing=treat_empty_as_missing)
 
@@ -478,27 +420,27 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                 st.caption(f"Displaying all {total_recs:,} rows in the matrix.")
 
             # Heatmap Plotly
-            # 1 = Missing (red/orange), 0 = Present (slate/blue)
+            # 1 = Missing (red/orange), 0 = Present (electric cyan)
             matrix_fig = go.Figure(
                 data=go.Heatmap(
                     z=matrix_df.values,
                     x=list(matrix_df.columns),
                     y=[f"Row {i}" for i in matrix_df.index],
-                    colorscale=[[0.0, "#2C7BE5"], [1.0, "#E63757"]],
+                    colorscale=[[0.0, COLOR_CYAN], [1.0, COLOR_DANGER]],
                     showscale=False,
                     hovertemplate="Column: %{x}<br>Row: %{y}<br>Status: %{z}<extra></extra>",
                 )
             )
             matrix_fig.update_layout(
                 height=320,
-                paper_bgcolor=LIGHT_BG,
-                plot_bgcolor=LIGHT_BG,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
                 margin={"l": 40, "r": 20, "t": 20, "b": 40},
                 xaxis={"tickangle": -45, "tickfont": {"size": 11, "color": DARK_TEXT}},
                 yaxis={"showticklabels": False},
             )
             st.plotly_chart(matrix_fig, use_container_width=True)
-            st.caption("🟦 Blue = Present / Non-Null &nbsp;|&nbsp; 🟥 Red = Missing / Null")
+            st.caption("🟦 Cyan = Present / Non-Null &nbsp;|&nbsp; 🟥 Red = Missing / Null")
 
         # Inspect Records with Missing Values
         st.markdown("##### Inspect Records with Missing Values")
@@ -1023,7 +965,7 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
             with p_info:
                 st.markdown(
-                    f"<div style='text-align: center; padding-top: 6px; font-weight: 600; color: #2B3035;'>"
+                    f"<div style='text-align: center; padding-top: 6px; font-weight: 600; color: #F8FAFC;'>"
                     f"Page {current_page} of {total_pages} &nbsp;|&nbsp; Showing records {((current_page - 1) * page_size) + 1:,}–{min(current_page * page_size, total_recs):,} of {total_recs:,}"
                     f"</div>",
                     unsafe_allow_html=True
@@ -1061,9 +1003,9 @@ def render_explorer_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             if selected_record_idx is not None and selected_record_idx in page_slice.index:
                 record_series = page_slice.loc[selected_record_idx]
                 st.markdown(f"""
-                    <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #2C7BE5; border-radius: 8px; padding: 18px 24px; margin-top: 10px;">
-                        <div style="font-size: 1.15rem; font-weight: 700; color: #2B3035; margin-bottom: 12px;">
-                            Record Details (Index: {selected_record_idx})
+                    <div class="insight-box" style="margin-top: 10px;">
+                        <div class="insight-title">
+                            <span>📄</span> Record Details (Index: {selected_record_idx})
                         </div>
                     </div>
                 """, unsafe_allow_html=True)

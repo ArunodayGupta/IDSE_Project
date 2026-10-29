@@ -16,29 +16,19 @@ import pandas as pd
 
 from .data_context import get_source_dataset, get_working_dataset
 from .missions import list_all_missions, get_mission, DataScientistMission
+from .ui_theme import render_page_header, COLOR_SUCCESS, COLOR_CYAN, COLOR_VIOLET
 
 
 def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     """
     Renders the Data Scientist Mission Mode guided learning environment.
     """
-    st.markdown("""
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #6F42C1; border-radius: 8px; padding: 18px 24px; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                <div>
-                    <h2 style="margin: 0; font-size: 1.45rem; font-weight: 700; color: #2B3035;">
-                        🎯 Data Scientist Mission Mode
-                    </h2>
-                    <p style="margin: 4px 0 0 0; color: #6C757D; font-size: 0.9rem;">
-                        Learn core data science by executing practical, evidence-verified workflows against real data.
-                    </p>
-                </div>
-                <span style="background: #F3EEFD; color: #6F42C1; border: 1px solid #D5C2F6; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">
-                    GUIDED MISSION TRACK
-                </span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_page_header(
+        "Data Scientist Mission Mode",
+        "Learn core data science by executing practical, evidence-verified workflows against real data.",
+        badge="GUIDED MISSION TRACK",
+        badge_color="violet"
+    )
 
     # Retrieve current active dataset context
     source_df, source_ident, source_name = get_source_dataset()
@@ -77,9 +67,9 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     for idx, m in enumerate(all_missions):
         with badge_cols[idx]:
             is_done = m.mission_id in completed_missions
-            badge_bg = "#E6FBF2" if is_done else "#F8F9FA"
-            badge_border = "#00D97E" if is_done else "#DEE2E6"
-            badge_color = "#008A4F" if is_done else "#ADB5BD"
+            badge_bg = "rgba(16, 185, 129, 0.12)" if is_done else "rgba(20, 28, 46, 0.85)"
+            badge_border = "rgba(16, 185, 129, 0.4)" if is_done else "#1E2B44"
+            badge_color = "#10B981" if is_done else "#64748B"
             check_mark = "✅ " if is_done else "🔒 "
 
             st.markdown(f"""
@@ -121,14 +111,16 @@ def render_missions_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
 
     with detail_col:
         st.markdown(f"### {current_mission.title}")
-        diff_color = "#00D97E" if current_mission.difficulty == "Beginner" else ("#2C7BE5" if current_mission.difficulty == "Intermediate" else "#6F42C1")
+        diff_color = "#10B981" if current_mission.difficulty == "Beginner" else ("#00D2FF" if current_mission.difficulty == "Intermediate" else "#818CF8")
+        diff_bg = "rgba(16, 185, 129, 0.12)" if current_mission.difficulty == "Beginner" else ("rgba(0, 210, 255, 0.12)" if current_mission.difficulty == "Intermediate" else "rgba(129, 140, 248, 0.12)")
+        diff_border = "rgba(16, 185, 129, 0.3)" if current_mission.difficulty == "Beginner" else ("rgba(0, 210, 255, 0.3)" if current_mission.difficulty == "Intermediate" else "rgba(129, 140, 248, 0.3)")
         st.markdown(f"""
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                <span style="background: #F8F9FA; color: {diff_color}; border: 1px solid {diff_color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
+                <span style="background: {diff_bg}; color: {diff_color}; border: 1px solid {diff_border}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
                     {current_mission.difficulty.upper()}
                 </span>
-                <span style="font-size: 0.85rem; color: #6C757D;">
-                    Award Badge: <b>{current_mission.badge}</b>
+                <span style="font-size: 0.85rem; color: #94A3B8;">
+                    Award Badge: <b style="color: #F8FAFC;">{current_mission.badge}</b>
                 </span>
             </div>
         """, unsafe_allow_html=True)

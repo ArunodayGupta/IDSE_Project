@@ -22,29 +22,28 @@ import plotly.express as px
 from .data_context import get_source_dataset, get_working_dataset
 from .operation_registry import list_operations_by_category, get_operation_spec
 from .workflow_engine import WorkflowPipeline, WorkflowStep, get_starter_workflows
+from src.ui_theme import (
+    render_page_header,
+    render_callout,
+    render_badge,
+    COLOR_CYAN,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    COLOR_VIOLET
+)
 
 
 def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     """
     Renders the Workflow Studio visual environment.
     """
-    st.markdown("""
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #00D97E; border-radius: 8px; padding: 18px 24px; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                <div>
-                    <h2 style="margin: 0; font-size: 1.45rem; font-weight: 700; color: #2B3035;">
-                        ⚡ Workflow Studio: Visual Pipeline Builder
-                    </h2>
-                    <p style="margin: 4px 0 0 0; color: #6C757D; font-size: 0.9rem;">
-                        Assemble, configure, validate, and execute end-to-end data science pipelines from reusable operations.
-                    </p>
-                </div>
-                <span style="background: #E6FBF2; color: #00D97E; border: 1px solid #A3F4D2; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">
-                    PHASE 4 WORKFLOW STUDIO
-                </span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_page_header(
+        title="Workflow Studio: Visual Pipeline Builder",
+        subtitle="Assemble, configure, validate, and execute end-to-end data science pipelines from reusable operations.",
+        badge="DAG Engine",
+        badge_type="info"
+    )
 
     # ------------------------------------------------------------------
     # Step 1: Input Dataset Selection
@@ -245,17 +244,17 @@ def render_workflow_studio_tab(netflix_raw_df: Optional[pd.DataFrame] = None) ->
 
                 # Render Step Card
                 st.markdown(f"""
-                    <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid {status_color}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                    <div style="background: linear-gradient(180deg, rgba(20, 28, 46, 0.95) 0%, rgba(14, 20, 34, 0.95) 100%); border: 1px solid #1E2B44; border-left: 4px solid {status_color}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
                         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="background: #2C7BE5; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">STEP #{idx}</span>
-                                <span style="font-size: 1.1rem; font-weight: 700; color: #2B3035;">{step.name}</span>
+                                <span style="background: rgba(0, 210, 255, 0.15); color: #00D2FF; border: 1px solid rgba(0, 210, 255, 0.3); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">STEP #{idx}</span>
+                                <span style="font-size: 1.05rem; font-weight: 700; color: #F8FAFC;">{step.name}</span>
                             </div>
-                            <span style="background: #F8F9FA; color: {status_color}; border: 1px solid {status_color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
+                            <span style="background: rgba(20, 28, 46, 0.9); color: {status_color}; border: 1px solid {status_color}; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
                                 {status_badge}
                             </span>
                         </div>
-                        <div style="color: #6C757D; font-size: 0.82rem; margin: 6px 0;">
+                        <div style="color: #94A3B8; font-size: 0.82rem; margin: 6px 0;">
                             <b>Operation:</b> <code>{step.op_type}</code> &nbsp;|&nbsp;
                             <b>Dependencies:</b> {', '.join(step.dependencies) if step.dependencies else 'None (Root)'}
                         </div>

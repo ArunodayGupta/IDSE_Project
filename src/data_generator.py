@@ -14,17 +14,19 @@ def get_project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def ensure_data_exists(data_path: str = "data/netflix_titles.csv") -> str:
+def ensure_data_exists(data_path: str = "netflix_titles.csv") -> str:
     """
     Checks if netflix_titles.csv exists at the specified path or standard fallback locations.
+    The canonical tracked dataset is 'netflix_titles.csv' at the project root, with a backward-compatible
+    fallback to 'data/netflix_titles.csv'.
     Resolves relative paths robustly against both the current working directory and the project root.
     Raises FileNotFoundError if missing, otherwise returns the validated path.
 
     Args:
-        data_path: Relative or absolute path to netflix_titles.csv.
+        data_path: Relative or absolute path to netflix_titles.csv. Defaults to canonical 'netflix_titles.csv'.
 
     Returns:
-        str: Validated path to netflix_titles.csv.
+        str: Validated absolute path to netflix_titles.csv.
 
     Raises:
         FileNotFoundError: If the dataset is not present.
@@ -39,19 +41,19 @@ def ensure_data_exists(data_path: str = "data/netflix_titles.csv") -> str:
     if candidate_root.exists():
         return str(candidate_root.resolve())
 
-    # 3. Check data/ directory under project root
-    candidate_data = root / "data" / "netflix_titles.csv"
-    if candidate_data.exists():
-        return str(candidate_data.resolve())
-
-    # 4. Check project root directly
+    # 3. Check project root directly (canonical tracked location)
     candidate_direct = root / "netflix_titles.csv"
     if candidate_direct.exists():
         return str(candidate_direct.resolve())
 
+    # 4. Check data/ directory under project root (fallback)
+    candidate_data = root / "data" / "netflix_titles.csv"
+    if candidate_data.exists():
+        return str(candidate_data.resolve())
+
     raise FileNotFoundError(
-        f"Dataset not found at '{data_path}'. Please ensure 'netflix_titles.csv' is placed "
-        f"in '{root / 'data'}' or the project root."
+        f"Dataset not found at '{data_path}'. Please ensure 'netflix_titles.csv' is present "
+        f"in the project root '{root}' or fallback '{root / 'data'}'."
     )
 
 

@@ -40,29 +40,30 @@ from .model_lab import (
     export_recommender_experiment_json,
 )
 from .model_trainer import ContentRecommender
+from src.ui_theme import (
+    render_page_header,
+    render_kpi_row,
+    render_callout,
+    render_badge,
+    apply_figure_theme,
+    COLOR_CYAN,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    COLOR_VIOLET
+)
 
 
 def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
     """
     Renders the consolidated Model Lab workspace.
     """
-    st.markdown("""
-        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #2C7BE5; border-radius: 8px; padding: 18px 24px; margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-                <div>
-                    <h2 style="margin: 0; font-size: 1.45rem; font-weight: 700; color: #2B3035;">
-                        🤖 DataLab: Model Lab & Recommender Arena
-                    </h2>
-                    <p style="margin: 4px 0 0 0; color: #6C757D; font-size: 0.9rem;">
-                        Rigorous, leakage-free predictive modeling and on-demand content recommendation experiments.
-                    </p>
-                </div>
-                <span style="background: #E7F1FF; color: #2C7BE5; border: 1px solid #B6D4FE; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">
-                    PHASE 3 & 4 CONSOLIDATED
-                </span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    render_page_header(
+        title="Model Lab & Recommender Arena",
+        subtitle="Leakage-free predictive modeling, on-demand content recommendations, and empirical metric scorecards.",
+        badge="Predictive Studio",
+        badge_type="info"
+    )
 
     # ------------------------------------------------------------------
     # Step 1: Shared Dataset State Retrieval (Source vs Working Copy)
@@ -691,16 +692,16 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
             quick_sel_col, quick_info_col = st.columns([3, 1])
             with quick_sel_col:
                 selected_q_title = st.selectbox(
-                    "Search or select a catalog title:",
-                    options=avail_titles,
+                    "Select Seed Title for Instant Recommendations:",
+                    avail_titles,
                     index=def_idx,
-                    key="sb_quick_rec_title"
+                    key="quick_rec_seed_title",
                 )
             with quick_info_col:
                 st.markdown(f"""
-                    <div style="background: #FFFFFF; border: 1px solid #DEE2E6; border-radius: 8px; padding: 10px 14px; margin-top: 24px;">
-                        <div style="font-size: 0.75rem; color: #6C757D; text-transform: uppercase; font-weight: 600;">Active Catalog Corpus</div>
-                        <div style="font-size: 1.15rem; color: #2B3035; font-weight: 700;">{len(active_df):,} <span style="font-size: 0.8rem; font-weight: 500; color: #2C7BE5;">Titles</span></div>
+                    <div style="background: rgba(20, 28, 46, 0.85); border: 1px solid #1E2B44; border-radius: 8px; padding: 10px 14px; margin-top: 24px;">
+                        <div style="font-size: 0.75rem; color: #94A3B8; text-transform: uppercase; font-weight: 600;">Active Catalog Corpus</div>
+                        <div style="font-size: 1.15rem; color: #F8FAFC; font-weight: 700;">{len(active_df):,} <span style="font-size: 0.8rem; font-weight: 500; color: #00D2FF;">Titles</span></div>
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -717,22 +718,22 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                     t_desc = str(target_r.get("description", "No description available."))
 
                     st.markdown(f"""
-                        <div style="background-color: #F8F9FA; border: 2px solid #2C7BE5; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+                        <div style="background: linear-gradient(180deg, rgba(20, 28, 46, 0.95) 0%, rgba(14, 20, 34, 0.95) 100%); border: 1px solid #1E2B44; border-left: 4px solid #00D2FF; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
                             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                                 <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                                    <span style="background: #2C7BE5; color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">QUERY TITLE</span>
-                                    <span style="font-size: 1.25rem; font-weight: 700; color: #2B3035;">{target_r['title']}</span>
+                                    <span style="background: rgba(0, 210, 255, 0.15); color: #00D2FF; border: 1px solid rgba(0, 210, 255, 0.3); padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">QUERY TITLE</span>
+                                    <span style="font-size: 1.25rem; font-weight: 700; color: #F8FAFC;">{target_r['title']}</span>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="background: #E9ECEF; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">{t_type}</span>
-                                    <span style="background: #E9ECEF; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">{t_rating}</span>
-                                    <span style="color: #6C757D; font-size: 0.85rem; font-weight: 600;">{t_year}</span>
+                                    <span style="background: rgba(148, 163, 184, 0.12); color: #CBD5E1; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">{t_type}</span>
+                                    <span style="background: rgba(148, 163, 184, 0.12); color: #CBD5E1; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">{t_rating}</span>
+                                    <span style="color: #94A3B8; font-size: 0.85rem; font-weight: 600;">{t_year}</span>
                                 </div>
                             </div>
-                            <div style="color: #6C757D; font-size: 0.85rem; margin: 8px 0;">
+                            <div style="color: #94A3B8; font-size: 0.85rem; margin: 8px 0;">
                                 <b>Genres:</b> {t_genres} &nbsp;|&nbsp; <b>Director:</b> {t_director} &nbsp;|&nbsp; <b>Cast:</b> {t_cast}
                             </div>
-                            <div style="color: #495057; font-size: 0.9rem; line-height: 1.5;">{t_desc}</div>
+                            <div style="color: #CBD5E1; font-size: 0.9rem; line-height: 1.5;">{t_desc}</div>
                         </div>
                     """, unsafe_allow_html=True)
 
@@ -761,23 +762,23 @@ def render_model_lab_tab(netflix_raw_df: Optional[pd.DataFrame] = None) -> None:
                         r_cast = str(row.get("cast", "Unlisted"))
 
                         st.markdown(f"""
-                            <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 4px solid #2C7BE5; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                            <div style="background: linear-gradient(180deg, rgba(20, 28, 46, 0.95) 0%, rgba(14, 20, 34, 0.95) 100%); border: 1px solid #1E2B44; border-left: 4px solid #00D2FF; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
                                 <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
                                     <div style="display: flex; align-items: center; gap: 10px;">
-                                        <span style="background: #2C7BE5; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">MATCH #{rank}</span>
-                                        <span style="font-size: 1.15rem; font-weight: 700; color: #2B3035;">{row['title']}</span>
+                                        <span style="background: rgba(0, 210, 255, 0.15); color: #00D2FF; border: 1px solid rgba(0, 210, 255, 0.3); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">MATCH #{rank}</span>
+                                        <span style="font-size: 1.12rem; font-weight: 700; color: #F8FAFC;">{row['title']}</span>
                                     </div>
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        <span style="background: #E7F1FF; color: #2C7BE5; border: 1px solid #B6D4FE; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 700;">{sim_pct}% MATCH</span>
-                                        <span style="background: #E9ECEF; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600;">{r_type}</span>
-                                        <span style="background: #E9ECEF; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600;">{r_rating}</span>
-                                        <span style="color: #6C757D; font-size: 0.85rem; font-weight: 600;">{r_year}</span>
+                                        <span style="background: rgba(0, 210, 255, 0.12); color: #00D2FF; border: 1px solid rgba(0, 210, 255, 0.25); padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 700;">{sim_pct}% MATCH</span>
+                                        <span style="background: rgba(148, 163, 184, 0.12); color: #CBD5E1; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600;">{r_type}</span>
+                                        <span style="background: rgba(148, 163, 184, 0.12); color: #CBD5E1; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 600;">{r_rating}</span>
+                                        <span style="color: #94A3B8; font-size: 0.85rem; font-weight: 600;">{r_year}</span>
                                     </div>
                                 </div>
-                                <div style="color: #6C757D; font-size: 0.83rem; margin: 6px 0;">
+                                <div style="color: #94A3B8; font-size: 0.83rem; margin: 6px 0;">
                                     <b>Genres:</b> {r_genres} &nbsp;|&nbsp; <b>Director:</b> {r_director} &nbsp;|&nbsp; <b>Cast:</b> {r_cast}
                                 </div>
-                                <div style="color: #495057; font-size: 0.88rem; line-height: 1.5;">{r_desc}</div>
+                                <div style="color: #CBD5E1; font-size: 0.88rem; line-height: 1.5;">{r_desc}</div>
                             </div>
                         """, unsafe_allow_html=True)
 
