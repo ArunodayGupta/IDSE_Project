@@ -1,484 +1,405 @@
 """
 visualizations.py
-Modular Plotly chart engine using an enterprise corporate design system
-(blue, white, and grey palette).
+Interactive Plotly visualizations for TMDB Movie Box Office Revenue platform.
 
-Visualizations:
-1. plot_catalog_growth: Area / line chart of Movies vs. TV Shows over time.
-2. plot_acquisition_lag_trend: Evolution of Same-Year Originals vs. Back-Catalog licensing.
-3. plot_top_countries_audience: Top producing countries segmented by audience maturity tier.
-4. plot_genre_cooccurrence: 2D co-occurrence heatmap of top genres.
-5. plot_duration_distributions: Side-by-side subplots of Movie runtime & TV season distribution.
-6. plot_missing_directors_comparison: Rate comparison of TV vs. Movie missing director values.
+Charts:
+1. plot_revenue_distribution: Skewed revenue distribution with log/linear scale support.
+2. plot_budget_vs_revenue: Production budget vs worldwide revenue interactive scatter.
+3. plot_revenue_by_genre: Median revenue and movie counts across film genres.
+4. plot_revenue_trend_over_time: Evolution of box office revenue across release years.
+5. plot_budget_distribution: Distribution of production budgets.
+6. plot_actual_vs_predicted: Regression evaluation scatter with y=x parity reference.
+7. plot_residuals_distribution: Distribution of prediction residuals.
+8. plot_feature_importance: Top model feature importance rankings.
+9. plot_missing_values_summary: Visual summary of missing metadata across columns.
 """
 
-from typing import Dict, Any
+from typing import List, Optional
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import plotly.express as px
 
-from .feature_engineer import explode_column
-
-
-# Modern Dark Analytics Palette Tokens (Electric Cyan, Blue, Violet, and Midnight Navy)
-PRIMARY_BLUE = "#00D2FF"
-LIGHT_BLUE = "#38BDF8"
-NAVY_BLUE = "#818CF8"
-SLATE_GREY = "#64748B"
-DARK_SLATE = "#F8FAFC"
-LIGHT_GREY = "#1E2B44"
-BORDER_GREY = "#223147"
-CARD_BG = "#141C2E"
-TEXT_MAIN = "#F8FAFC"
-TEXT_MUTED = "#94A3B8"
-GRID_COLOR = "#1E2B44"
-
-# Backward-compatibility aliases
-NETFLIX_RED = PRIMARY_BLUE
-NETFLIX_CRIMSON = NAVY_BLUE
-TEXT_WHITE = "#FFFFFF"
-
-AUDIENCE_COLOR_MAP = {
-    "Mature / Adults": PRIMARY_BLUE,
-    "Family / Teens": NAVY_BLUE,
-    "Kids": LIGHT_BLUE
-}
-
-ORIGIN_COLOR_MAP = {
-    "Same-Year (Original/Exclusive Proxy)": PRIMARY_BLUE,
-    "Recent Release (1-3 Yrs)": NAVY_BLUE,
-    "Back-Catalog (>3 Yrs)": SLATE_GREY
-}
+from src.ui_theme import (
+    apply_figure_theme,
+    COLOR_CYAN,
+    COLOR_BLUE,
+    COLOR_VIOLET,
+    COLOR_SUCCESS,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    TEXT_PRIMARY,
+    TEXT_MUTED,
+    BORDER_SUBTLE,
+    BG_CARD,
+)
 
 
-def _apply_corporate_theme(fig: go.Figure, title: str = "", height: int = 450) -> go.Figure:
-    """Helper to apply consistent modern dark analytics styling to any Plotly figure."""
-    fig.update_layout(
-        title={
-            "text": f"<b>{title}</b>" if title else "",
-            "y": 0.95,
-            "x": 0.02,
-            "xanchor": "left",
-            "yanchor": "top",
-            "font": {"size": 14, "color": TEXT_MAIN, "family": "Inter, Segoe UI, sans-serif"}
-        },
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        height=height,
-        margin={"l": 45, "r": 25, "t": 50 if title else 30, "b": 75},
-        font={"family": "Inter, Segoe UI, sans-serif", "color": TEXT_MUTED, "size": 12},
-        legend={
-            "orientation": "h",
-            "yanchor": "top",
-            "y": -0.18,
-            "xanchor": "center",
-            "x": 0.5,
-            "bgcolor": "rgba(20, 28, 46, 0.75)",
-            "bordercolor": BORDER_GREY,
-            "borderwidth": 1,
-            "font": {"color": TEXT_MAIN, "size": 11}
-        },
-        hoverlabel={
-            "bgcolor": CARD_BG,
-            "font_size": 12,
-            "font_family": "Inter, Segoe UI, sans-serif",
-            "font_color": TEXT_MAIN,
-            "bordercolor": BORDER_GREY
-        }
-    )
-    fig.update_xaxes(
-        gridcolor=GRID_COLOR,
-        zerolinecolor=GRID_COLOR,
-        tickfont={"color": TEXT_MUTED, "size": 11},
-        linecolor=BORDER_GREY
-    )
-    fig.update_yaxes(
-        gridcolor=GRID_COLOR,
-        zerolinecolor=GRID_COLOR,
-        tickfont={"color": TEXT_MUTED, "size": 11},
-        linecolor=BORDER_GREY
-    )
-    return fig
+def format_currency_compact(val: float) -> str:
+    """Formats numeric amounts into readable compact currency strings (e.g. $12.5M)."""
+    if pd.isna(val) or val is None:
+        return "N/A"
+    abs_v = abs(val)
+    if abs_v >= 1e9:
+        return f"${val / 1e9:.2f}B"
+    elif abs_v >= 1e6:
+        return f"${val / 1e6:.1f}M"
+    elif abs_v >= 1e3:
+        return f"${val / 1e3:.0f}K"
+    else:
+        return f"${val:,.0f}"
 
 
-def plot_catalog_growth(df: pd.DataFrame) -> go.Figure:
+# -----------------------------------------------------------------------------
+# Section A: Overview Visualizations
+# -----------------------------------------------------------------------------
+
+def plot_revenue_distribution(df: pd.DataFrame, log_scale: bool = True) -> go.Figure:
     """
-    1. Catalog Growth: Stacked area / line chart showing additions of Movies vs. TV Shows over time.
-    Highlights the strategic shift in content mix.
+    Renders the worldwide movie revenue distribution.
+    Supports logarithmic x-axis to accommodate extreme skewness ($1 to $1.5B+).
     """
-    if "year_added" not in df.columns or "type" not in df.columns:
-        return go.Figure()
-
-    # Filter out anomalous years (e.g. prior to 2010 when streaming was nascent)
-    valid_df = df[df["year_added"] >= 2010].copy()
-    if valid_df.empty:
-        valid_df = df.copy()
-
-    growth = (
-        valid_df.groupby(["year_added", "type"])
-        .size()
-        .unstack(fill_value=0)
-        .reset_index()
-    )
-
-    if "Movie" not in growth.columns:
-        growth["Movie"] = 0
-    if "TV Show" not in growth.columns:
-        growth["TV Show"] = 0
-
-    growth["Total"] = growth["Movie"] + growth["TV Show"]
-    growth["TV_Pct"] = (growth["TV Show"] / growth["Total"] * 100).round(1)
+    valid = df[df["revenue"].notna() & (df["revenue"] > 0)].copy()
+    rev = valid["revenue"].values
 
     fig = go.Figure()
 
-    # Add Movie Area trace
-    fig.add_trace(go.Scatter(
-        x=growth["year_added"],
-        y=growth["Movie"],
-        mode="lines",
-        name="Movies",
-        line={"width": 2.5, "color": SLATE_GREY},
-        stackgroup="one",
-        fillcolor="rgba(108, 117, 125, 0.25)",
-        hovertemplate="<b>Year %{x}</b><br>Movies Added: %{y:,}<extra></extra>"
-    ))
-
-    # Add TV Show Area trace
-    fig.add_trace(go.Scatter(
-        x=growth["year_added"],
-        y=growth["TV Show"],
-        mode="lines",
-        name="TV Shows",
-        line={"width": 2.5, "color": PRIMARY_BLUE},
-        stackgroup="one",
-        fillcolor="rgba(44, 123, 229, 0.25)",
-        hovertemplate="<b>Year %{x}</b><br>TV Shows Added: %{y:,}<extra></extra>"
-    ))
-
-    # Add Line for Total additions
-    fig.add_trace(go.Scatter(
-        x=growth["year_added"],
-        y=growth["Total"],
-        mode="lines+markers",
-        name="Total Catalog Added",
-        line={"width": 2, "color": DARK_SLATE, "dash": "dot"},
-        marker={"size": 6, "color": PRIMARY_BLUE},
-        hovertemplate="<b>Year %{x}</b><br>Total Additions: %{y:,}<extra></extra>"
-    ))
-
-    # Annotate peak additions
-    if not growth.empty:
-        peak_row = growth.loc[growth["Total"].idxmax()]
-        fig.add_annotation(
-            x=peak_row["year_added"],
-            y=peak_row["Total"],
-            text=f"Peak Additions ({int(peak_row['Total']):,} titles)",
-            showarrow=True,
-            arrowhead=2,
-            arrowcolor=PRIMARY_BLUE,
-            ax=0,
-            ay=-40,
-            font={"color": DARK_SLATE, "size": 11},
-            bgcolor=CARD_BG,
-            bordercolor=BORDER_GREY,
-            borderwidth=1
+    if log_scale:
+        log_rev = np.log10(rev)
+        fig.add_trace(go.Histogram(
+            x=log_rev,
+            nbinsx=40,
+            marker_color=COLOR_CYAN,
+            marker_line_color=BORDER_SUBTLE,
+            marker_line_width=1,
+            opacity=0.88,
+            hovertemplate="Log10 Revenue: %{x:.2f}<br>Count: %{y:,}<extra></extra>"
+        ))
+        fig.update_xaxes(
+            title_text="Worldwide Revenue (Log10 USD)",
+            tickvals=[3, 4, 5, 6, 7, 8, 9],
+            ticktext=["$1K", "$10K", "$100K", "$1M", "$10M", "$100M", "$1B"]
         )
+    else:
+        fig.add_trace(go.Histogram(
+            x=rev / 1e6,
+            nbinsx=50,
+            marker_color=COLOR_CYAN,
+            marker_line_color=BORDER_SUBTLE,
+            marker_line_width=1,
+            opacity=0.88,
+            hovertemplate="Revenue: $%{x:.1f}M<br>Count: %{y:,}<extra></extra>"
+        ))
+        fig.update_xaxes(title_text="Worldwide Revenue (Million USD)")
 
-    _apply_corporate_theme(
-        fig,
-        title="",
-        height=430
-    )
-    fig.update_xaxes(title="Year Added to Catalog")
-    fig.update_yaxes(title="Titles Added per Year")
-    return fig
+    fig.update_yaxes(title_text="Movie Count")
+    return apply_figure_theme(fig, title="Worldwide Box Office Revenue Distribution", height=380)
 
 
-def plot_acquisition_lag_trend(df: pd.DataFrame) -> go.Figure:
+def plot_budget_vs_revenue(df: pd.DataFrame) -> go.Figure:
     """
-    2. Original vs. Licensed Strategy:
-    100% Normalized stacked bar chart showing the composition of acquisitions
-    (Same-Year Originals proxy vs. Recent releases vs. Back-Catalog studio licensing).
+    Interactive scatter plot showing the relationship between production budget
+    and worldwide revenue with logarithmic axes.
     """
-    if "year_added" not in df.columns or "content_origin_proxy" not in df.columns:
-        return go.Figure()
+    valid = df[(df["budget"] > 0) & (df["revenue"] > 0)].copy()
 
-    valid_df = df[df["year_added"] >= 2014].copy()
-    if valid_df.empty:
-        valid_df = df.copy()
-
-    # Aggregate counts
-    agg = (
-        valid_df.groupby(["year_added", "content_origin_proxy"])
-        .size()
-        .unstack(fill_value=0)
-    )
-
-    # Compute 100% normalized shares
-    row_sums = agg.sum(axis=1)
-    agg_pct = (agg.div(row_sums, axis=0) * 100).round(1).reset_index()
+    # Pre-format hover labels
+    valid["budget_fmt"] = valid["budget"].apply(format_currency_compact)
+    valid["revenue_fmt"] = valid["revenue"].apply(format_currency_compact)
+    valid["multiple"] = (valid["revenue"] / valid["budget"]).round(2)
+    valid["title_disp"] = valid["title"].fillna(valid.get("original_title", "Untitled"))
 
     fig = go.Figure()
 
-    # Standard order: Back-Catalog, Recent, Same-Year
-    categories = [
-        "Back-Catalog (>3 Yrs)",
-        "Recent Release (1-3 Yrs)",
-        "Same-Year (Original/Exclusive Proxy)"
-    ]
-
-    for cat in categories:
-        if cat in agg_pct.columns:
-            fig.add_trace(go.Bar(
-                x=agg_pct["year_added"],
-                y=agg_pct[cat],
-                name=cat,
-                marker_color=ORIGIN_COLOR_MAP.get(cat, SLATE_GREY),
-                hovertemplate=f"<b>%{{x}}</b><br>{cat}: <b>%{{y}}%</b><extra></extra>"
-            ))
-
-    fig.update_layout(barmode="stack")
-    _apply_corporate_theme(
-        fig,
-        title="",
-        height=430
-    )
-    fig.update_xaxes(title="Year Added")
-    fig.update_yaxes(title="Share of Catalog Additions (%)", range=[0, 100])
-    return fig
-
-
-def plot_top_countries_audience(df: pd.DataFrame, top_n: int = 12) -> go.Figure:
-    """
-    3. Global Production:
-    Horizontal stacked bar chart of Top N producing countries, segmented by audience tier.
-    Uses multi-label exploded country data.
-    """
-    if "country" not in df.columns or "audience_tier" not in df.columns:
-        return go.Figure()
-
-    # Explode multi-country titles
-    exploded_c = explode_column(df, "country", drop_values=["Unknown", "Unlisted", ""])
-    if exploded_c.empty:
-        return go.Figure()
-
-    # Top N countries
-    top_countries = exploded_c["country"].value_counts().head(top_n).index.tolist()
-    filtered = exploded_c[exploded_c["country"].isin(top_countries)]
-
-    # Cross-tabulate
-    ct = (
-        filtered.groupby(["country", "audience_tier"])
-        .size()
-        .unstack(fill_value=0)
-    )
-
-    # Order countries by total titles
-    ct["Total"] = ct.sum(axis=1)
-    ct = ct.sort_values("Total", ascending=True)
-
-    fig = go.Figure()
-    tiers = ["Kids", "Family / Teens", "Mature / Adults"]
-
-    for tier in tiers:
-        if tier in ct.columns:
-            fig.add_trace(go.Bar(
-                y=ct.index,
-                x=ct[tier],
-                name=tier,
-                orientation="h",
-                marker_color=AUDIENCE_COLOR_MAP.get(tier, SLATE_GREY),
-                hovertemplate=f"<b>%{{y}}</b><br>{tier}: %{{x:,}} titles<extra></extra>"
-            ))
-
-    fig.update_layout(barmode="stack")
-    _apply_corporate_theme(
-        fig,
-        title="",
-        height=460
-    )
-    fig.update_xaxes(title="Number of Titles Produced")
-    fig.update_yaxes(title="", dtick=1)
-    return fig
-
-
-def plot_genre_cooccurrence(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
-    """
-    4. Genre Co-Occurrence Matrix Heatmap:
-    Calculates pairwise co-occurrence frequencies between top genres.
-    """
-    if "listed_in" not in df.columns:
-        return go.Figure()
-
-    # First find top genres
-    exploded = explode_column(df, "listed_in", drop_values=["", "Unknown"])
-    if exploded.empty:
-        return go.Figure()
-
-    top_genres = exploded["listed_in"].value_counts().head(top_n).index.tolist()
-
-    # Build co-occurrence matrix
-    matrix = pd.DataFrame(0, index=top_genres, columns=top_genres)
-
-    # Iterate over rows with listed_in
-    for genres_str in df["listed_in"].dropna():
-        genres = [g.strip() for g in genres_str.split(",") if g.strip() in top_genres]
-        for g1 in genres:
-            for g2 in genres:
-                if g1 != g2:
-                    matrix.loc[g1, g2] += 1
-
-    custom_colorscale = [
-        [0.0, "#F8F9FA"],
-        [0.2, "#E3EBF6"],
-        [0.4, "#ADC8F8"],
-        [0.7, "#6EA8FE"],
-        [1.0, "#2C7BE5"]
-    ]
-
-    fig = go.Figure(data=go.Heatmap(
-        z=matrix.values,
-        x=matrix.columns,
-        y=matrix.index,
-        colorscale=custom_colorscale,
-        text=matrix.values,
-        texttemplate="%{text}",
-        textfont={"size": 11, "color": DARK_SLATE},
-        hoverongaps=False,
-        hovertemplate="<b>%{y}</b> + <b>%{x}</b><br>Co-occurrences: %{z:,}<extra></extra>"
-    ))
-
-    _apply_corporate_theme(
-        fig,
-        title="",
-        height=480
-    )
-    fig.update_xaxes(tickangle=-35)
-    return fig
-
-
-def plot_duration_distributions(df: pd.DataFrame) -> go.Figure:
-    """
-    5. Runtime & Season Distribution:
-    Side-by-side subplots:
-    - Left: Movie runtime distribution (duration_min) highlighting the 90-110 min typical window.
-    - Right: TV Show season count distribution (seasons_count) detailing season drop-off rates.
-    """
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=(
-            "Movie Runtimes (90110 Min Window)",
-            "TV Show Seasons (Season Count Distribution)"
+    fig.add_trace(go.Scatter(
+        x=valid["budget"],
+        y=valid["revenue"],
+        mode="markers",
+        marker=dict(
+            size=6,
+            color=valid["revenue"],
+            colorscale="Viridis",
+            opacity=0.75,
+            showscale=False,
+            line=dict(width=0.5, color=BORDER_SUBTLE)
         ),
-        horizontal_spacing=0.12
-    )
-
-    # Subplot 1: Movie Runtimes
-    movies_df = df[df["type"] == "Movie"].dropna(subset=["duration_min"])
-    if not movies_df.empty:
-        runtimes = movies_df["duration_min"]
-        median_runtime = runtimes.median()
-
-        fig.add_trace(
-            go.Histogram(
-                x=runtimes,
-                nbinsx=35,
-                marker_color=PRIMARY_BLUE,
-                opacity=0.85,
-                name="Movies",
-                hovertemplate="Runtime: <b>%{x} min</b><br>Count: %{y}<extra></extra>"
-            ),
-            row=1, col=1
-        )
-
-        # Vertical line for median
-        fig.add_vline(
-            x=median_runtime,
-            line_dash="dash",
-            line_color=DARK_SLATE,
-            line_width=2,
-            annotation_text=f"Median: {int(median_runtime)}m",
-            annotation_position="top right",
-            annotation_font={"color": DARK_SLATE, "size": 11},
-            row=1, col=1
-        )
-
-        # Highlight sweet spot band (90-110m)
-        fig.add_vrect(
-            x0=90, x1=110,
-            fillcolor="rgba(44, 123, 229, 0.12)",
-            layer="below",
-            line_width=1,
-            line_color="rgba(44, 123, 229, 0.3)",
-            row=1, col=1
-        )
-
-    # Subplot 2: TV Show Season Drop-Off
-    tv_df = df[df["type"] == "TV Show"].dropna(subset=["seasons_count"])
-    if not tv_df.empty:
-        season_counts = tv_df["seasons_count"].value_counts().sort_index()
-        total_shows = len(tv_df)
-        season_labels = [f"S{int(s)}" for s in season_counts.index]
-        season_pcts = (season_counts / total_shows * 100).round(1)
-
-        # Bar colors: gradient from primary blue to slate grey
-        colors = ["#2C7BE5", "#4B8FE8", "#6EA8FE", "#9EC5FE", "#6C757D", "#ADB5BD"]
-        bar_colors = [colors[min(i, len(colors)-1)] for i in range(len(season_counts))]
-
-        fig.add_trace(
-            go.Bar(
-                x=season_labels,
-                y=season_counts.values,
-                marker_color=bar_colors,
-                name="TV Shows",
-                customdata=season_pcts.values,
-                hovertemplate="Season %{x}<br>Count: <b>%{y}</b> (%{customdata}% of TV catalog)<extra></extra>"
-            ),
-            row=1, col=2
-        )
-
-    _apply_corporate_theme(fig, title="", height=430)
-    fig.update_xaxes(title_text="Duration (Minutes)", row=1, col=1)
-    fig.update_yaxes(title_text="Number of Movies", row=1, col=1)
-    fig.update_xaxes(title_text="Season Count", row=1, col=2)
-    fig.update_yaxes(title_text="Number of TV Shows", row=1, col=2)
-    fig.update_layout(showlegend=False)
-
-    return fig
-
-
-def plot_missing_directors_comparison(hygiene_report: Dict[str, Any]) -> go.Figure:
-    """
-    6. Missing Director Field Analysis:
-    Compares the missing director rate in Movies vs. TV Shows.
-    Demonstrates that missing metadata is an inherent property of episodic TV.
-    """
-    h = hygiene_report.get("director_hypothesis", {})
-    categories = ["Feature Films (Movies)", "Episodic TV Shows"]
-    missing_rates = [
-        h.get("movie_missing_dir_pct", 12.0),
-        h.get("tv_missing_dir_pct", 74.0)
-    ]
-    totals = [
-        h.get("movie_total", 0),
-        h.get("tv_total", 0)
-    ]
-    missing_counts = [
-        h.get("movie_missing_dir", 0),
-        h.get("tv_missing_dir", 0)
-    ]
-
-    fig = go.Figure(go.Bar(
-        x=categories,
-        y=missing_rates,
-        marker_color=[LIGHT_BLUE, PRIMARY_BLUE],
-        text=[f"<b>{r}%</b> Missing<br>({c:,} / {t:,})" for r, c, t in zip(missing_rates, missing_counts, totals)],
-        textposition="inside",
-        textfont={"color": "#FFFFFF", "size": 13},
-        hovertemplate="<b>%{x}</b><br>Missing Director: %{y}%<extra></extra>"
+        text=valid["title_disp"],
+        customdata=np.stack((valid["budget_fmt"], valid["revenue_fmt"], valid["multiple"]), axis=-1),
+        hovertemplate="<b>%{text}</b><br>Budget: %{customdata[0]}<br>Revenue: %{customdata[1]}<br>Multiple: %{customdata[2]}x<extra></extra>"
     ))
 
-    _apply_corporate_theme(fig, title="", height=350)
-    fig.update_yaxes(title="Missing Director Rate (%)", range=[0, 100])
-    fig.update_layout(showlegend=False)
-    return fig
+    # Add 1:1 reference line
+    min_val = max(1e4, min(valid["budget"].min(), valid["revenue"].min()))
+    max_val = max(valid["budget"].max(), valid["revenue"].max())
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode="lines",
+        name="1.0x Multiple Reference",
+        line=dict(color=COLOR_WARNING, dash="dash", width=1.5),
+        hoverinfo="skip"
+    ))
+
+    fig.update_xaxes(type="log", title_text="Production Budget (USD, Log Scale)")
+    fig.update_yaxes(type="log", title_text="Worldwide Revenue (USD, Log Scale)")
+
+    return apply_figure_theme(fig, title="Production Budget vs Worldwide Revenue", height=420)
+
+
+def plot_revenue_by_genre(genre_stats_df: pd.DataFrame) -> go.Figure:
+    """
+    Compares median worldwide box office revenue across film genres
+    with movie count indicators.
+    """
+    df_sorted = genre_stats_df.sort_values(by="median_revenue", ascending=True)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        y=df_sorted["genre"],
+        x=df_sorted["median_revenue"] / 1e6,
+        orientation="h",
+        marker=dict(
+            color=COLOR_BLUE,
+            line=dict(color=BORDER_SUBTLE, width=1)
+        ),
+        customdata=np.stack((
+            df_sorted["median_revenue"].apply(format_currency_compact),
+            df_sorted["movie_count"],
+            df_sorted["mean_revenue"].apply(format_currency_compact)
+        ), axis=-1),
+        hovertemplate="<b>%{y}</b><br>Median Revenue: %{customdata[0]}<br>Average Revenue: %{customdata[2]}<br>Movies: %{customdata[1]:,}<extra></extra>"
+    ))
+
+    fig.update_xaxes(title_text="Median Worldwide Revenue (Million USD)")
+    fig.update_yaxes(title_text="", tickfont=dict(color=TEXT_PRIMARY, size=11))
+
+    return apply_figure_theme(fig, title="Median Worldwide Revenue by Major Genre", height=440)
+
+
+def plot_revenue_trend_over_time(yearly_stats_df: pd.DataFrame) -> go.Figure:
+    """
+    Visualizes box office revenue trends across release years.
+    Displays median revenue and average revenue lines with markers.
+    """
+    df = yearly_stats_df.sort_values(by="release_year").reset_index(drop=True)
+
+    fig = go.Figure()
+
+    # Median revenue line
+    fig.add_trace(go.Scatter(
+        x=df["release_year"],
+        y=df["median_revenue"] / 1e6,
+        mode="lines+markers",
+        name="Median Revenue",
+        line=dict(color=COLOR_CYAN, width=2.5),
+        marker=dict(size=5, color=COLOR_CYAN),
+        customdata=df["movie_count"],
+        hovertemplate="Year %{x}<br>Median Revenue: $%{y:.1f}M<br>Sample: %{customdata:,} films<extra></extra>"
+    ))
+
+    # Mean revenue line
+    fig.add_trace(go.Scatter(
+        x=df["release_year"],
+        y=df["mean_revenue"] / 1e6,
+        mode="lines",
+        name="Average Revenue",
+        line=dict(color=COLOR_VIOLET, width=1.8, dash="dot"),
+        hovertemplate="Year %{x}<br>Average Revenue: $%{y:.1f}M<extra></extra>"
+    ))
+
+    fig.update_xaxes(title_text="Release Year")
+    fig.update_yaxes(title_text="Worldwide Revenue (Million USD)")
+
+    return apply_figure_theme(fig, title="Worldwide Box Office Trends Over Time", height=380)
+
+
+def plot_budget_distribution(df: pd.DataFrame) -> go.Figure:
+    """
+    Shows how production budgets are distributed, focusing on non-zero reported budgets.
+    """
+    valid = df[df["budget"] > 0].copy()
+    budgets_m = valid["budget"] / 1e6
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Histogram(
+        x=budgets_m,
+        nbinsx=40,
+        marker_color=COLOR_VIOLET,
+        marker_line_color=BORDER_SUBTLE,
+        marker_line_width=1,
+        opacity=0.88,
+        hovertemplate="Budget: $%{x:.1f}M<br>Movies: %{y:,}<extra></extra>"
+    ))
+
+    median_b = float(valid["budget"].median() / 1e6)
+    fig.add_vline(
+        x=median_b,
+        line_dash="dash",
+        line_color=COLOR_WARNING,
+        line_width=1.5,
+        annotation_text=f"Median: ${median_b:.1f}M",
+        annotation_position="top right",
+        annotation_font_color=COLOR_WARNING
+    )
+
+    fig.update_xaxes(title_text="Reported Production Budget (Million USD)")
+    fig.update_yaxes(title_text="Movie Count")
+
+    return apply_figure_theme(fig, title="Movie Production Budget Distribution (Non-Zero Budgets)", height=380)
+
+
+# -----------------------------------------------------------------------------
+# Section B: Data Explorer Visualizations
+# -----------------------------------------------------------------------------
+
+def plot_missing_values_summary(missing_df: pd.DataFrame) -> go.Figure:
+    """
+    Renders a clean horizontal bar chart displaying missing value percentages by column.
+    """
+    if missing_df.empty:
+        fig = go.Figure()
+        return apply_figure_theme(fig, title="Zero Missing Values Detected", height=240)
+
+    df_sorted = missing_df.sort_values(by="missing_pct", ascending=True)
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        y=df_sorted["column"],
+        x=df_sorted["missing_pct"],
+        orientation="h",
+        marker=dict(
+            color=COLOR_DANGER,
+            opacity=0.85,
+            line=dict(color=BORDER_SUBTLE, width=1)
+        ),
+        customdata=df_sorted["missing_count"],
+        hovertemplate="<b>%{y}</b><br>Missing: %{x:.1f}% (%{customdata:,} rows)<extra></extra>"
+    ))
+
+    fig.update_xaxes(title_text="Missing Percentage (%)", range=[0, 100])
+    fig.update_yaxes(title_text="", tickfont=dict(color=TEXT_PRIMARY, size=11))
+
+    return apply_figure_theme(fig, title="Missing Metadata by Column", height=max(260, len(df_sorted) * 22))
+
+
+# -----------------------------------------------------------------------------
+# Section C: ML Studio Visualizations
+# -----------------------------------------------------------------------------
+
+def plot_actual_vs_predicted(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    model_name: str = "Selected Model"
+) -> go.Figure:
+    """
+    Renders an actual vs predicted revenue scatter plot on a logarithmic scale
+    with a parity identity reference line.
+    """
+    y_true_c = np.clip(y_true, 1, None)
+    y_pred_c = np.clip(y_pred, 1, None)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=y_true_c,
+        y=y_pred_c,
+        mode="markers",
+        marker=dict(
+            size=6,
+            color=COLOR_CYAN,
+            opacity=0.65,
+            line=dict(color=BORDER_SUBTLE, width=0.5)
+        ),
+        name="Validation Sample",
+        customdata=np.stack((
+            [format_currency_compact(v) for v in y_true_c],
+            [format_currency_compact(v) for v in y_pred_c]
+        ), axis=-1),
+        hovertemplate="Actual: %{customdata[0]}<br>Predicted: %{customdata[1]}<extra></extra>"
+    ))
+
+    min_val = min(y_true_c.min(), y_pred_c.min())
+    max_val = max(y_true_c.max(), y_pred_c.max())
+
+    # Parity identity line
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode="lines",
+        name="Parity (y = x)",
+        line=dict(color=COLOR_WARNING, dash="dash", width=1.5),
+        hoverinfo="skip"
+    ))
+
+    fig.update_xaxes(type="log", title_text="Actual Worldwide Revenue (USD, Log Scale)")
+    fig.update_yaxes(type="log", title_text="Predicted Worldwide Revenue (USD, Log Scale)")
+
+    return apply_figure_theme(fig, title=f"Actual vs Predicted Revenue ({model_name})", height=420)
+
+
+def plot_residuals_distribution(residuals: np.ndarray) -> go.Figure:
+    """
+    Visualizes the prediction residuals distribution in millions of USD.
+    """
+    res_m = residuals / 1e6
+
+    # Trim extreme 1% tails for visualization stability
+    q01, q99 = np.percentile(res_m, [1, 99])
+    trimmed = res_m[(res_m >= q01) & (res_m <= q99)]
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Histogram(
+        x=trimmed,
+        nbinsx=40,
+        marker_color=COLOR_BLUE,
+        marker_line_color=BORDER_SUBTLE,
+        marker_line_width=1,
+        opacity=0.85,
+        hovertemplate="Residual: $%{x:.1f}M<br>Count: %{y:,}<extra></extra>"
+    ))
+
+    fig.add_vline(
+        x=0,
+        line_color=COLOR_SUCCESS,
+        line_width=1.5,
+        annotation_text="Zero Error",
+        annotation_position="top",
+        annotation_font_color=COLOR_SUCCESS
+    )
+
+    fig.update_xaxes(title_text="Prediction Residual: (Actual - Predicted) Million USD")
+    fig.update_yaxes(title_text="Validation Count")
+
+    return apply_figure_theme(fig, title="Residual Error Distribution", height=380)
+
+
+def plot_feature_importance(importance_df: pd.DataFrame, top_n: int = 15) -> go.Figure:
+    """
+    Renders top feature importances as a clean horizontal bar chart.
+    """
+    if importance_df.empty or "importance" not in importance_df.columns:
+        fig = go.Figure()
+        return apply_figure_theme(fig, title="Feature Importances Not Available", height=280)
+
+    top_df = importance_df.head(top_n).sort_values(by="importance", ascending=True)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        y=top_df["feature"],
+        x=top_df["importance"],
+        orientation="h",
+        marker=dict(
+            color=COLOR_CYAN,
+            line=dict(color=BORDER_SUBTLE, width=1)
+        ),
+        hovertemplate="<b>%{y}</b><br>Importance: %{x:.4f}<extra></extra>"
+    ))
+
+    fig.update_xaxes(title_text="Relative Feature Importance")
+    fig.update_yaxes(title_text="", tickfont=dict(color=TEXT_PRIMARY, size=11))
+
+    return apply_figure_theme(fig, title=f"Top {top_n} Pre-Release Predictive Features", height=420)
