@@ -59,10 +59,19 @@ MODEL_REGISTRY = {
 def compute_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """
     Computes Root Mean Squared Logarithmic Error (RMSLE).
+    Primary evaluation metric for the TMDB Box Office Prediction competition.
     Ensures predictions are clipped >= 0 before log transform.
+    Handles empty arrays safely.
     """
-    clipped_pred = np.clip(y_pred, 0, None)
-    log_true = np.log1p(np.clip(y_true, 0, None))
+    y_t = np.asarray(y_true, dtype=float)
+    y_p = np.asarray(y_pred, dtype=float)
+
+    if len(y_t) == 0 or len(y_p) == 0:
+        return 0.0
+
+    clipped_pred = np.clip(y_p, 0, None)
+    clipped_true = np.clip(y_t, 0, None)
+    log_true = np.log1p(clipped_true)
     log_pred = np.log1p(clipped_pred)
     return float(np.sqrt(np.mean((log_pred - log_true) ** 2)))
 
@@ -73,7 +82,6 @@ def build_feature_preprocessor(feature_columns: List[str]) -> Tuple[ColumnTransf
     low-cardinality categorical variables.
     """
     cat_cols = ["original_language", "primary_genre"]
-    # Ensure they exist in feature_columns
     cat_cols = [c for c in cat_cols if c in feature_columns]
     num_cols = [c for c in feature_columns if c not in cat_cols]
 
@@ -142,6 +150,7 @@ def extract_feature_importances(
 ) -> pd.DataFrame:
     """
     Extracts feature names and relative importance values from tree-based estimators.
+    Returns an empty DataFrame for algorithms without feature_importances_ (e.g. HistGradientBoosting).
     """
     estimator = pipeline.named_steps.get("estimator")
     preprocessor = pipeline.named_steps.get("preprocessor")
@@ -163,7 +172,6 @@ def extract_feature_importances(
     all_names = num_cols + cat_feature_names
 
     if len(all_names) != len(importances):
-        # Truncate or pad safely
         all_names = all_names[:len(importances)] if len(all_names) > len(importances) else (
             all_names + [f"feature_{i}" for i in range(len(all_names), len(importances))]
         )
@@ -254,12 +262,12 @@ def generate_kaggle_submission(
     Fits the selected model on the entire labeled training dataset (100%),
     predicts worldwide revenue for the test dataset, and returns a DataFrame
     formatted for Kaggle submission with columns: ['id', 'revenue'].
-    Preserves original test IDs and guarantees non-negative revenues.
+    Preserves original test IDs and guarantees finite, non-negative revenues.
     """
-    # 1. Feature Engineering on Full Training Data
-    X_full, y_full, stats = engineer_movie_features(raw_train_df, is_train=True)
+    # 1. Feature Engineering on Full Training Data (deriving training stats)
+    X_full, y_full, stats = engineer_movie_features(raw_train_df, is_train=True, stats=None)
 
-    # 2. Build Pipeline and Train on 100% of Training Data
+    # 2. Build Pipeline and Train on 100% of Labeled Training Data
     preprocessor, _, _ = build_feature_preprocessor(list(X_full.columns))
     estimator = create_estimator(model_key, hyperparams, random_state=random_state)
     pipeline = Pipeline([
@@ -273,11 +281,11 @@ def generate_kaggle_submission(
     # 3. Feature Engineering on Test Data reusing Training Stats
     X_test, _, _ = engineer_movie_features(raw_test_df, is_train=False, stats=stats)
 
-    # 4. Predict on Test Data
+    # 4. Predict on Test Data and inverse transform
     test_pred_log = pipeline.predict(X_test)
     test_pred_revenue = np.clip(np.expm1(test_pred_log), 0, None)
 
-    # 5. Format Submission
+    # 5. Format Submission preserving test IDs and order
     submission = pd.DataFrame({
         "id": raw_test_df["id"].values,
         "revenue": np.round(test_pred_revenue, 2)

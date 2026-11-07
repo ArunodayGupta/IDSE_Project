@@ -59,21 +59,40 @@ def get_cached_features_and_splits(
     random_state: int = 42
 ) -> Dict[str, Any]:
     """
-    Computes pre-release features and creates a fixed, reproducible train/val partition.
-    Cached so Streamlit reruns do not recompute features repeatedly.
+    Establishes a leak-free train/validation partition.
+
+    Leakage Prevention Workflow:
+    1. Filter labeled records with strictly positive revenue.
+    2. Split raw records into training and validation sets BEFORE feature engineering.
+    3. Calculate imputation medians and reference statistics strictly from the training partition.
+    4. Transform validation records using only the training-derived statistics.
     """
-    X, y, stats = engineer_movie_features(raw_df, is_train=True)
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
+    if "revenue" not in raw_df.columns:
+        raise ValueError("Training dataset must contain the target column 'revenue'.")
+
+    # 1. Isolate labeled records with positive revenue
+    valid_revenue_mask = pd.to_numeric(raw_df["revenue"], errors="coerce") > 0
+    labeled_raw = raw_df.loc[valid_revenue_mask].copy()
+
+    # 2. Split raw records prior to any feature transformation
+    raw_train, raw_val = train_test_split(
+        labeled_raw, test_size=test_size, random_state=random_state
     )
+
+    # 3. Engineer features on training partition; compute stats on training only
+    X_train, y_train, stats = engineer_movie_features(raw_train, is_train=True, stats=None)
+
+    # 4. Transform validation partition reusing training statistics
+    X_val, y_val, _ = engineer_movie_features(raw_val, is_train=True, stats=stats)
+
     return {
-        "X": X,
-        "y": y,
         "stats": stats,
         "X_train": X_train,
         "X_val": X_val,
         "y_train": y_train,
         "y_val": y_val,
+        "n_train": len(X_train),
+        "n_val": len(X_val),
     }
 
 
@@ -86,17 +105,19 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         badge_type="info"
     )
 
-    # Prepare features and train/validation split
+    # Session State and Dataset Invalidation Management
+    dataset_fingerprint = f"{len(raw_df)}_{raw_df.shape[1]}_{id(raw_df)}"
+    if st.session_state.get("ml_active_dataset_fp") != dataset_fingerprint:
+        st.session_state["ml_studio_models"] = {}
+        st.session_state["ml_active_dataset_fp"] = dataset_fingerprint
+
+    # Prepare features and train/validation split using leak-free pipeline
     split_bundle = get_cached_features_and_splits(raw_df, test_size=0.2, random_state=42)
     X_train = split_bundle["X_train"]
     y_train = split_bundle["y_train"]
     X_val = split_bundle["X_val"]
     y_val = split_bundle["y_val"]
     stats = split_bundle["stats"]
-
-    # Initialize model session registry
-    if "ml_studio_models" not in st.session_state:
-        st.session_state["ml_studio_models"] = {}
 
     # Target leakage prevention notice
     render_callout(
@@ -105,7 +126,8 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             "Predictive features are restricted strictly to pre-release metadata: production budget, "
             "genres, runtime, release date, original language, production countries, production companies, "
             "and cast/crew sizes. Post-release metrics (revenue, popularity, vote counts, and vote averages) "
-            "are completely excluded to ensure model validity."
+            "are completely excluded to ensure model validity. Preprocessing statistics are calculated "
+            "exclusively from training records."
         ),
         callout_type="info"
     )
@@ -174,21 +196,19 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             st.session_state["ml_active_model_key"] = selected_model_key
             st.success(f"Trained {res['model_name']} in {res['fit_duration_sec']}s. Validation RMSLE: {res['rmsle']:.4f}")
 
-    # Auto-train default Random Forest model on first load if registry is empty
-    if not st.session_state["ml_studio_models"]:
+    # Auto-train default models on first load if registry is empty
+    if not st.session_state.get("ml_studio_models"):
         with st.spinner("Initializing baseline and Random Forest models..."):
-            # Dummy
             res_dummy = train_movie_regressor("dummy", {}, X_train, y_train, X_val, y_val)
             st.session_state["ml_studio_models"]["dummy"] = res_dummy
 
-            # Random Forest default
             res_rf = train_movie_regressor("random_forest", {"n_estimators": 100, "max_depth": 12}, X_train, y_train, X_val, y_val)
             st.session_state["ml_studio_models"]["random_forest"] = res_rf
             st.session_state["ml_active_model_key"] = "random_forest"
 
     trained_registry = st.session_state["ml_studio_models"]
 
-    # Model Comparison Table
+    # Model Comparison Table (Displays only actually trained models)
     if trained_registry:
         table_rows = []
         best_rmsle = min(m["rmsle"] for m in trained_registry.values())
@@ -196,7 +216,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         for k, m in trained_registry.items():
             is_best = (m["rmsle"] == best_rmsle)
             table_rows.append({
-                "Algorithm": m["model_name"] + (" (Best)" if is_best else ""),
+                "Algorithm": m["model_name"] + (" (Lowest RMSLE)" if is_best else ""),
                 "RMSLE (Primary)": f"{m['rmsle']:.4f}",
                 "MAE (USD)": f"${m['mae']:,.0f}",
                 "R2 Score": f"{m['r2']:.4f}",
@@ -240,7 +260,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         {
             "title": "Validation RMSLE",
             "value": f"{active_res['rmsle']:.4f}",
-            "subtext": "Primary Competition Metric (Lower is Better)",
+            "subtext": "Primary Evaluation Metric (Lower is Better)",
             "accent_color": COLOR_SUCCESS if active_res['rmsle'] < 2.5 else COLOR_WARNING
         },
         {
@@ -270,18 +290,20 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             model_name=active_res["model_name"]
         )
         st.plotly_chart(fig_scatter, use_container_width=True)
-        st.caption("Points closer to the diagonal amber line achieve parity between predicted and actual box-office revenue.")
+        st.caption("Points closer to the diagonal reference line indicate agreement between predicted and actual revenue.")
 
     with e_col2:
         fig_res = plot_residuals_distribution(active_res["residuals"])
         st.plotly_chart(fig_res, use_container_width=True)
-        st.caption("Residual distribution centered near zero reflects balanced variance without systematic under-prediction.")
+        st.caption("Residual distribution shows prediction errors (actual minus predicted revenue) in millions USD.")
 
-    # Feature Importance Chart
+    # Feature Importance Chart (Handled safely for models without feature importances)
     if not active_res["feature_importances"].empty:
         fig_imp = plot_feature_importance(active_res["feature_importances"], top_n=15)
         st.plotly_chart(fig_imp, use_container_width=True)
-        st.caption("Production budget, major studio backing, cast size, and runtime serve as primary pre-release drivers.")
+        st.caption("Relative feature importance values derived from tree splits in the fitted model.")
+    else:
+        st.info(f"Feature importances are not directly available for {active_res['model_name']}.")
 
     st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
 
@@ -290,7 +312,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
     # -------------------------------------------------------------------------
     render_section_header("Interactive Revenue Prediction", "Estimate worldwide box-office receipts for an upcoming film")
 
-    st.markdown("Enter pre-release specifications to generate a real-time revenue estimate:")
+    st.markdown("Enter pre-release specifications to generate a real-time revenue estimate using the selected model:")
 
     with st.form("form_interactive_prediction"):
         p_col1, p_col2, p_col3 = st.columns(3)
@@ -302,7 +324,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
                 max_value=500000000,
                 value=40000000,
                 step=1000000,
-                help="Enter 0 if budget is unrecorded/indie."
+                help="Enter 0 if budget is unrecorded or indie."
             )
             inp_runtime = st.number_input(
                 "Runtime (Minutes)",
@@ -343,8 +365,10 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
                 value=2,
                 step=1
             )
-            inp_major = st.checkbox("Major Studio Backing (Disney, Warner, Universal, etc.)", value=True)
+            inp_major = st.checkbox("Major Studio Backing", value=True)
             inp_collection = st.checkbox("Belongs to Franchise / Collection", value=False)
+            inp_homepage = st.checkbox("Official Website Available", value=False)
+            inp_tagline = st.checkbox("Promotional Tagline Available", value=True)
             inp_cast_size = st.number_input(
                 "Cast Size",
                 min_value=1,
@@ -363,7 +387,6 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         submit_pred = st.form_submit_button("Predict Worldwide Revenue", type="primary")
 
     if submit_pred:
-        # Build single-movie feature row
         movie_dict = {
             "budget": inp_budget,
             "runtime": inp_runtime,
@@ -378,8 +401,8 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             "crew_size": inp_crew_size,
             "language_count": 1,
             "country_count": 1,
-            "has_homepage": False,
-            "has_tagline": True,
+            "has_homepage": inp_homepage,
+            "has_tagline": inp_tagline,
         }
 
         single_feature_df = prepare_single_movie_features(movie_dict, stats)
@@ -388,10 +411,15 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
 
         # Range / Outlier validation warnings
         warnings = []
+        if inp_date and inp_date.year > 2021:
+            warnings.append(
+                f"Entered release date ({inp_date}) is beyond historical training observations (up to 2020). "
+                "The model is extrapolating into future box-office conditions; forecast carries heightened uncertainty."
+            )
         if inp_budget > stats.get("budget_p99", 200000000.0):
             warnings.append(
-                f"Entered budget (${inp_budget:,.0f}) is higher than 99% of training titles. "
-                "Forecast carries heightened variance."
+                f"Entered budget (${inp_budget:,.0f}) exceeds the 99th percentile of training data. "
+                "Prediction carries increased variance."
             )
         if inp_runtime < stats.get("runtime_min", 40.0) or inp_runtime > stats.get("runtime_max", 240.0):
             warnings.append(
@@ -403,7 +431,13 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         for w in warnings:
             st.warning(w)
 
-        # Display formatted revenue prediction
+        # Display formatted revenue prediction with zero-budget safe multiple
+        multiple_html = (
+            f"Estimated Gross Multiple: {(predicted_usd / inp_budget):.2f}x production budget"
+            if inp_budget > 0
+            else "Estimated Gross Multiple: N/A (Unrecorded or zero budget)"
+        )
+
         st.markdown(f"""
             <div style="background: linear-gradient(180deg, rgba(20, 28, 46, 0.95) 0%, rgba(14, 20, 34, 0.95) 100%); border: 1px solid #1E2B44; border-top: 3px solid {COLOR_CYAN}; border-radius: 10px; padding: 22px 26px; margin: 12px 0;">
                 <div style="font-size: 0.82rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.06em;">
@@ -413,10 +447,10 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
                     ${predicted_usd:,.0f} USD
                 </div>
                 <div style="font-size: 0.92rem; color: #00D2FF; font-weight: 600;">
-                    Model: {active_res['model_name']}  Validation RMSLE: {active_res['rmsle']:.4f}
+                    Model: {active_res['model_name']} | Validation RMSLE: {active_res['rmsle']:.4f}
                 </div>
                 <div style="font-size: 0.82rem; color: #94A3B8; margin-top: 8px;">
-                    Estimated Gross Multiple: {(predicted_usd / inp_budget):.2f}x production budget
+                    {multiple_html}
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -469,7 +503,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             title="test.csv Not Detected",
             body=(
                 "test.csv was not detected in project directories. "
-                "Place test.csv into the 'data/' directory to enable full Kaggle test prediction generation."
+                "Place test.csv into 'data/' or 'tmdb-box-office-prediction/' to enable Kaggle test prediction generation."
             ),
             callout_type="warning"
         )

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 
 # Environments
 venv/
@@ -24,6 +25,6 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Data files (Keep the folder, ignore the heavy CSVs)
+# Data files (Keep the folder, ignore generated CSVs if placed in data/)
 data/*.csv
 !data/.gitkeep

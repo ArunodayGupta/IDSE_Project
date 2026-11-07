@@ -15,6 +15,7 @@ from .data_loader import (
 from .feature_engineering import (
     engineer_movie_features,
     prepare_single_movie_features,
+    validate_raw_schema,
 )
 
 from .model_trainer import (
@@ -23,6 +24,19 @@ from .model_trainer import (
     generate_kaggle_submission,
     compute_rmsle,
     MODEL_REGISTRY,
+)
+
+from .visualizations import (
+    plot_revenue_distribution,
+    plot_budget_vs_revenue,
+    plot_revenue_by_genre,
+    plot_revenue_trend_over_time,
+    plot_budget_distribution,
+    plot_actual_vs_predicted,
+    plot_residuals_distribution,
+    plot_feature_importance,
+    plot_missing_values_summary,
+    format_currency_compact,
 )
 
 from .ui_theme import (
@@ -46,11 +60,22 @@ __all__ = [
     "get_dataset_availability",
     "engineer_movie_features",
     "prepare_single_movie_features",
+    "validate_raw_schema",
     "train_movie_regressor",
     "predict_single_movie",
     "generate_kaggle_submission",
     "compute_rmsle",
     "MODEL_REGISTRY",
+    "plot_revenue_distribution",
+    "plot_budget_vs_revenue",
+    "plot_revenue_by_genre",
+    "plot_revenue_trend_over_time",
+    "plot_budget_distribution",
+    "plot_actual_vs_predicted",
+    "plot_residuals_distribution",
+    "plot_feature_importance",
+    "plot_missing_values_summary",
+    "format_currency_compact",
     "inject_custom_theme",
     "apply_figure_theme",
     "render_page_header",

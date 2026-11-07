@@ -34,7 +34,9 @@ from src.ui_theme import (
 
 def get_dataset_quality_metrics(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, pd.DataFrame]:
     """Computes missing value summary, duplicate count, and descriptive statistics."""
-    # Missing values
+    if df.empty:
+        return pd.DataFrame(columns=["column", "missing_count", "missing_pct"]), 0, pd.DataFrame()
+
     null_counts = df.isna().sum()
     null_cols = null_counts[null_counts > 0]
     if not null_cols.empty:
@@ -46,10 +48,8 @@ def get_dataset_quality_metrics(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, pd
     else:
         missing_df = pd.DataFrame(columns=["column", "missing_count", "missing_pct"])
 
-    # Duplicates
     dup_count = int(df.duplicated().sum())
 
-    # Numeric descriptive stats
     num_cols = df.select_dtypes(include=[np.number]).columns
     stats_df = df[num_cols].describe().T[["count", "mean", "std", "min", "50%", "max"]].rename(
         columns={"50%": "median"}
@@ -69,6 +69,7 @@ def execute_cleaning_pipeline(
     """
     Applies reproducible cleaning transformations to a copy of the dataset.
     Returns (cleaned_df, audit_report).
+    Only records actions that were actually executed.
     """
     clean_df = df.copy()
     initial_rows = len(clean_df)
@@ -77,18 +78,26 @@ def execute_cleaning_pipeline(
 
     # 1. Remove Duplicate Records
     if remove_dups:
-        dups = clean_df.duplicated().sum()
+        dups = int(clean_df.duplicated().sum())
         if dups > 0:
             clean_df = clean_df.drop_duplicates().reset_index(drop=True)
             actions_taken.append(f"Removed {dups:,} duplicate records.")
+        else:
+            actions_taken.append("Duplicate audit complete: zero duplicate records detected.")
 
     # 2. Identify Suspicious Zero Budget and Runtime
     if flag_suspicious:
+        flagged_items = []
         if "budget" in clean_df.columns:
             clean_df["budget_is_zero"] = (pd.to_numeric(clean_df["budget"], errors="coerce").fillna(0) <= 0).astype(int)
+            zero_b_count = int(clean_df["budget_is_zero"].sum())
+            flagged_items.append(f"{zero_b_count:,} zero budgets")
         if "runtime" in clean_df.columns:
             clean_df["runtime_is_zero"] = (pd.to_numeric(clean_df["runtime"], errors="coerce").fillna(0) <= 0).astype(int)
-        actions_taken.append("Flagged unrecorded zero budgets and runtimes with binary indicator columns.")
+            zero_r_count = int(clean_df["runtime_is_zero"].sum())
+            flagged_items.append(f"{zero_r_count:,} zero runtimes")
+        if flagged_items:
+            actions_taken.append(f"Flagged unrecorded values ({', '.join(flagged_items)}) with binary indicators.")
 
     # 3. Impute Missing Numerical Values
     if impute_numerics:
@@ -96,40 +105,37 @@ def execute_cleaning_pipeline(
             b_num = pd.to_numeric(clean_df["budget"], errors="coerce")
             valid_b = b_num[b_num > 0]
             med_b = float(valid_b.median()) if not valid_b.empty else 16000000.0
-            clean_df["budget_imputed"] = np.where(b_num > 0, b_num, med_b)
-            actions_taken.append(f"Imputed unrecorded budgets with median non-zero budget (${med_b:,.0f}).")
+            imputed_b_mask = b_num.isna() | (b_num <= 0)
+            clean_df["budget_imputed"] = np.where(~imputed_b_mask, b_num, med_b)
+            actions_taken.append(f"Imputed {int(imputed_b_mask.sum()):,} missing/zero budgets with median (${med_b:,.0f}).")
 
         if "runtime" in clean_df.columns:
             r_num = pd.to_numeric(clean_df["runtime"], errors="coerce")
             valid_r = r_num[r_num > 0]
             med_r = float(valid_r.median()) if not valid_r.empty else 104.0
-            clean_df["runtime_imputed"] = np.where(r_num > 0, r_num, med_r)
-            actions_taken.append(f"Imputed missing or zero runtimes with median runtime ({med_r:.0f} mins).")
+            imputed_r_mask = r_num.isna() | (r_num <= 0)
+            clean_df["runtime_imputed"] = np.where(~imputed_r_mask, r_num, med_r)
+            actions_taken.append(f"Imputed {int(imputed_r_mask.sum()):,} missing/zero runtimes with median ({med_r:.0f} mins).")
 
     # 4. Parse Release Date with Century Adjustment
     if fix_dates and "release_date" in clean_df.columns:
         parsed_dates = parse_release_date(clean_df["release_date"])
-        clean_df["release_year"] = parsed_dates.dt.year.fillna(2000).astype(int)
-        clean_df["release_month"] = parsed_dates.dt.month.fillna(6).astype(int)
-        clean_df["release_quarter"] = parsed_dates.dt.quarter.fillna(2).astype(int)
-        clean_df["release_dayofweek"] = parsed_dates.dt.dayofweek.fillna(4).astype(int)
-        actions_taken.append("Converted release dates and corrected 2-digit century rollover (years > 2020 mapped to 1900s).")
+        clean_df["release_year"] = parsed_dates.dt.year
+        clean_df["release_month"] = parsed_dates.dt.month
+        clean_df["release_quarter"] = parsed_dates.dt.quarter
+        clean_df["release_dayofweek"] = parsed_dates.dt.dayofweek
+        actions_taken.append("Parsed release dates; normalized 2-digit century rollover while preserving explicit 4-digit dates.")
 
     # 5. Parse Nested JSON Columns
     if parse_json_cols:
-        if "genres" in clean_df.columns:
-            clean_df["genre_count"] = clean_df["genres"].apply(safe_parse_json).apply(len)
-        if "production_companies" in clean_df.columns:
-            clean_df["company_count"] = clean_df["production_companies"].apply(safe_parse_json).apply(len)
-        if "production_countries" in clean_df.columns:
-            clean_df["country_count"] = clean_df["production_countries"].apply(safe_parse_json).apply(len)
-        if "spoken_languages" in clean_df.columns:
-            clean_df["language_count"] = clean_df["spoken_languages"].apply(safe_parse_json).apply(len)
-        if "cast" in clean_df.columns:
-            clean_df["cast_size"] = clean_df["cast"].apply(safe_parse_json).apply(len)
-        if "crew" in clean_df.columns:
-            clean_df["crew_size"] = clean_df["crew"].apply(safe_parse_json).apply(len)
-        actions_taken.append("Parsed nested JSON metadata columns into tabular integer counts.")
+        json_parsed_cols = []
+        for col in ["genres", "production_companies", "production_countries", "spoken_languages", "cast", "crew"]:
+            if col in clean_df.columns:
+                target_col = f"{col[:-1] if col.endswith('s') else col}_count" if col != "cast" and col != "crew" else f"{col}_size"
+                clean_df[target_col] = clean_df[col].apply(safe_parse_json).apply(len)
+                json_parsed_cols.append(col)
+        if json_parsed_cols:
+            actions_taken.append(f"Extracted entity counts from JSON metadata columns ({', '.join(json_parsed_cols)}).")
 
     # 6. Belongs to Collection Flag
     if "belongs_to_collection" in clean_df.columns:
@@ -137,8 +143,9 @@ def execute_cleaning_pipeline(
             clean_df["belongs_to_collection"].notna()
             & (clean_df["belongs_to_collection"].astype(str).str.strip() != "")
             & (clean_df["belongs_to_collection"].astype(str).str.strip() != "[]")
+            & (clean_df["belongs_to_collection"].astype(str).str.strip() != "{}")
         ).astype(int)
-        actions_taken.append("Created binary collection / franchise indicator.")
+        actions_taken.append("Created binary franchise / collection indicator.")
 
     final_nulls = int(clean_df.isna().sum().sum())
 
@@ -177,8 +184,19 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         ],
         index=0,
         horizontal=True,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key="explorer_dataset_source_radio"
     )
+
+    # Invalidate stale cleaning state if dataset source changed
+    current_source_key = f"src_{src_choice}"
+    if src_choice == "Upload Custom CSV File":
+        current_source_key += f"_{st.session_state.get('explorer_csv_uploader_filename', '')}"
+
+    if st.session_state.get("active_clean_source") != current_source_key:
+        st.session_state.pop("tmdb_cleaned_data", None)
+        st.session_state.pop("tmdb_cleaning_audit", None)
+        st.session_state["active_clean_source"] = current_source_key
 
     active_df = raw_df
     active_label = "train.csv"
@@ -189,7 +207,7 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
                 title="Default Dataset Missing",
                 body=(
                     "train.csv was not detected in project directories. "
-                    "Please place train.csv into the 'data/' folder or use the file uploader below."
+                    "Please place train.csv into 'data/' or 'tmdb-box-office-prediction/'."
                 ),
                 callout_type="warning"
             )
@@ -200,10 +218,19 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
     elif src_choice == "Upload Custom CSV File":
         uploaded_file = st.file_uploader("Upload CSV File", type=["csv"], key="explorer_csv_uploader")
         if uploaded_file is not None:
+            st.session_state["explorer_csv_uploader_filename"] = uploaded_file.name
             try:
                 active_df = pd.read_csv(uploaded_file)
                 active_label = uploaded_file.name
                 st.success(f"Loaded {len(active_df):,} rows and {active_df.shape[1]} columns from {uploaded_file.name}")
+                render_callout(
+                    title="Custom Dataset Scope Notice",
+                    body=(
+                        "Uploaded datasets are available for exploratory inspection and cleaning only. "
+                        "The ML Studio workspace is configured to train exclusively on the labeled training dataset."
+                    ),
+                    callout_type="info"
+                )
             except Exception as e:
                 st.error(f"Error parsing uploaded file: {str(e)}")
         else:
@@ -220,7 +247,7 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
                 title="Competition Test File Not Found",
                 body=(
                     "test.csv was not found in 'data/' or 'tmdb-box-office-prediction/'. "
-                    "Place test.csv in the 'data/' directory to inspect test records."
+                    "Place test.csv in project directories to inspect test records."
                 ),
                 callout_type="warning"
             )
@@ -272,13 +299,27 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         search_query = st.text_input("Search Title or Synopsis", placeholder="Filter by keyword...", key="exp_search")
 
     with filter_col2:
-        # Resolve release years for filtering
+        # Resolve release years safely
         if "release_date" in active_df.columns:
             dts = parse_release_date(active_df["release_date"])
             valid_years = dts.dt.year.dropna()
-            min_yr = int(valid_years.min()) if not valid_years.empty else 1920
-            max_yr = int(valid_years.max()) if not valid_years.empty else 2020
-            selected_year_range = st.slider("Release Year Range", min_yr, max_yr, (1980, max_yr), key="exp_year_slider")
+            if not valid_years.empty:
+                min_yr = int(valid_years.min())
+                max_yr = int(valid_years.max())
+                if min_yr < max_yr:
+                    default_start = max(min_yr, 1980) if min_yr <= 1980 <= max_yr else min_yr
+                    selected_year_range = st.slider(
+                        "Release Year Range",
+                        min_yr,
+                        max_yr,
+                        (default_start, max_yr),
+                        key="exp_year_slider"
+                    )
+                else:
+                    st.caption(f"All releases from year {min_yr}")
+                    selected_year_range = None
+            else:
+                selected_year_range = None
         else:
             selected_year_range = None
 
@@ -289,15 +330,16 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         else:
             selected_langs = []
 
-    # Apply filters
+    # Apply filters safely
     filtered_df = active_df.copy()
 
     if search_query.strip():
         term = search_query.strip().lower()
-        title_mask = filtered_df["title"].astype(str).str.lower().str.contains(term, na=False) if "title" in filtered_df.columns else False
-        orig_mask = filtered_df["original_title"].astype(str).str.lower().str.contains(term, na=False) if "original_title" in filtered_df.columns else False
-        over_mask = filtered_df["overview"].astype(str).str.lower().str.contains(term, na=False) if "overview" in filtered_df.columns else False
-        filtered_df = filtered_df[title_mask | orig_mask | over_mask]
+        search_mask = pd.Series(False, index=filtered_df.index)
+        for col in ["title", "original_title", "overview"]:
+            if col in filtered_df.columns:
+                search_mask = search_mask | filtered_df[col].astype(str).str.lower().str.contains(term, regex=False, na=False)
+        filtered_df = filtered_df[search_mask]
 
     if selected_year_range and "release_date" in filtered_df.columns:
         dts_filtered = parse_release_date(filtered_df["release_date"]).dt.year
@@ -313,8 +355,8 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         default_cols = all_cols[:8]
 
     selected_columns = st.multiselect("Visible Columns", options=all_cols, default=default_cols, key="exp_col_select")
-
     display_columns = selected_columns if selected_columns else all_cols
+
     st.dataframe(filtered_df[display_columns], use_container_width=True, height=350)
     st.caption(f"Displaying {len(filtered_df):,} of {len(active_df):,} records.")
 
@@ -343,7 +385,7 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         opt_dups = st.checkbox("Remove Duplicate Records", value=True, key="clean_opt_dups")
         opt_numerics = st.checkbox("Impute Missing Budget & Runtime", value=True, key="clean_opt_numerics")
     with c_col2:
-        opt_dates = st.checkbox("Convert Dates & Fix Century Rollover", value=True, key="clean_opt_dates")
+        opt_dates = st.checkbox("Convert Dates & Standardize Rollover", value=True, key="clean_opt_dates")
         opt_suspicious = st.checkbox("Flag Suspicious 0 Budget / Runtime", value=True, key="clean_opt_suspicious")
     with c_col3:
         opt_json = st.checkbox("Parse JSON Metadata (Cast, Crew, Genres)", value=True, key="clean_opt_json")
@@ -359,9 +401,9 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         )
         st.session_state["tmdb_cleaned_data"] = cleaned_df
         st.session_state["tmdb_cleaning_audit"] = audit
-        st.success(f"Transformations applied successfully. Working dataset now has {len(cleaned_df):,} rows and {cleaned_df.shape[1]} columns.")
+        st.success(f"Transformations applied successfully. Working dataset has {len(cleaned_df):,} rows and {cleaned_df.shape[1]} columns.")
 
-    # If cleaned dataset exists in session state, display audit and download button
+    # If cleaned dataset exists for the current active source, display audit and download
     if "tmdb_cleaned_data" in st.session_state:
         cleaned_copy = st.session_state["tmdb_cleaned_data"]
         audit = st.session_state.get("tmdb_cleaning_audit", {})

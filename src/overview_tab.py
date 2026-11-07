@@ -32,6 +32,9 @@ from src.ui_theme import (
 @st.cache_data(show_spinner=False)
 def compute_genre_aggregates(df: pd.DataFrame) -> pd.DataFrame:
     """Computes median and average revenue and movie counts per major genre."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["genre", "median_revenue", "mean_revenue", "movie_count"])
+
     records = []
     for _, row in df.iterrows():
         rev = row.get("revenue")
@@ -59,6 +62,9 @@ def compute_genre_aggregates(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def compute_yearly_aggregates(df: pd.DataFrame) -> pd.DataFrame:
     """Computes median and average worldwide revenue across release years."""
+    if df is None or df.empty or "release_date" not in df.columns or "revenue" not in df.columns:
+        return pd.DataFrame(columns=["release_year", "median_revenue", "mean_revenue", "movie_count"])
+
     data = df.copy()
     parsed_dates = parse_release_date(data["release_date"])
     data["release_year"] = parsed_dates.dt.year
@@ -87,21 +93,23 @@ def render_overview_section(df: pd.DataFrame) -> None:
 
     # 1. Compute High-Level Platform KPIs
     total_movies = len(df)
-    valid_rev = df[df["revenue"].notna() & (df["revenue"] > 0)]["revenue"]
-    avg_revenue = valid_rev.mean() if not valid_rev.empty else 0.0
-    med_revenue = valid_rev.median() if not valid_rev.empty else 0.0
+    valid_rev = df[df["revenue"].notna() & (df["revenue"] > 0)]["revenue"] if "revenue" in df.columns else pd.Series(dtype=float)
+    avg_revenue = float(valid_rev.mean()) if not valid_rev.empty else 0.0
+    med_revenue = float(valid_rev.median()) if not valid_rev.empty else 0.0
 
-    valid_bud = df[df["budget"].notna() & (df["budget"] > 0)]["budget"]
-    med_budget = valid_bud.median() if not valid_bud.empty else 0.0
+    valid_bud = df[df["budget"].notna() & (df["budget"] > 0)]["budget"] if "budget" in df.columns else pd.Series(dtype=float)
+    med_budget = float(valid_bud.median()) if not valid_bud.empty else 0.0
 
-    # Gross revenue-to-budget multiple (strictly NOT labeled as profit or ROI)
-    movies_with_budget = df[(df["budget"] > 0) & (df["revenue"] > 0)]
-    if not movies_with_budget.empty:
-        multiples = movies_with_budget["revenue"] / movies_with_budget["budget"]
-        # Clip extreme outliers for robust reporting
-        avg_multiple = float(np.mean(multiples))
+    # Robust Median gross revenue-to-budget multiple (strictly NOT labeled as profit or ROI)
+    if "budget" in df.columns and "revenue" in df.columns:
+        movies_with_budget = df[(df["budget"] > 0) & (df["revenue"] > 0)]
+        if not movies_with_budget.empty:
+            multiples = (movies_with_budget["revenue"] / movies_with_budget["budget"]).values
+            med_multiple = float(np.median(multiples))
+        else:
+            med_multiple = 0.0
     else:
-        avg_multiple = 0.0
+        med_multiple = 0.0
 
     kpi_cards = [
         {
@@ -114,14 +122,14 @@ def render_overview_section(df: pd.DataFrame) -> None:
         {
             "title": "Average Worldwide Revenue",
             "value": format_currency_compact(avg_revenue),
-            "subtext": f"Exact: ${avg_revenue:,.0f}",
+            "subtext": f"Exact: ${avg_revenue:,.0f}" if avg_revenue > 0 else "No data",
             "subtext_neutral": True,
             "accent_color": COLOR_BLUE
         },
         {
             "title": "Median Worldwide Revenue",
             "value": format_currency_compact(med_revenue),
-            "subtext": f"Exact: ${med_revenue:,.0f}",
+            "subtext": f"Exact: ${med_revenue:,.0f}" if med_revenue > 0 else "No data",
             "subtext_neutral": True,
             "accent_color": COLOR_VIOLET
         },
@@ -133,8 +141,8 @@ def render_overview_section(df: pd.DataFrame) -> None:
             "accent_color": COLOR_SUCCESS
         },
         {
-            "title": "Gross Revenue / Budget Multiple",
-            "value": f"{avg_multiple:.2f}x",
+            "title": "Median Gross Multiple",
+            "value": f"{med_multiple:.2f}x" if med_multiple > 0 else "N/A",
             "subtext": "Gross Multiple (Not Profit or ROI)",
             "subtext_neutral": True,
             "accent_color": COLOR_CYAN
@@ -154,14 +162,14 @@ def render_overview_section(df: pd.DataFrame) -> None:
         log_toggle = st.toggle("Logarithmic Scale", value=True, key="overview_rev_dist_log")
         fig_rev = plot_revenue_distribution(df, log_scale=log_toggle)
         st.plotly_chart(fig_rev, use_container_width=True)
-        st.caption("Distribution reflects high skewness: median revenue is $16.8M while top theatrical titles exceed $1B.")
+        st.caption(f"Worldwide theatrical distribution exhibits extreme positive skewness (median: {format_currency_compact(med_revenue)}).")
 
     with col2:
         render_section_header("Budget vs Revenue", "Scatter relationship on logarithmic scales with 1.0x parity line")
         st.markdown("<div style='height: 38px;'></div>", unsafe_allow_html=True)
         fig_scatter = plot_budget_vs_revenue(df)
         st.plotly_chart(fig_scatter, use_container_width=True)
-        st.caption("Points above the dashed amber line achieved gross box-office exceeding production budget.")
+        st.caption("Points above the dashed amber reference line achieved gross theatrical revenue exceeding production budget.")
 
     st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
@@ -173,13 +181,13 @@ def render_overview_section(df: pd.DataFrame) -> None:
         genre_stats = compute_genre_aggregates(df)
         fig_genre = plot_revenue_by_genre(genre_stats)
         st.plotly_chart(fig_genre, use_container_width=True)
-        st.caption("Adventure, Family, and Fantasy genres demonstrate the highest median worldwide box-office revenues.")
+        st.caption("Median worldwide box-office receipts aggregated across major genres with at least 10 titles.")
 
     with col4:
         render_section_header("Movie Budget Distribution", "Reported production budgets excluding unrecorded entries")
         fig_budget = plot_budget_distribution(df)
         st.plotly_chart(fig_budget, use_container_width=True)
-        st.caption("Median reported production budget is $16.0M across films with recorded financial records.")
+        st.caption(f"Reported production budgets distribution (median: {format_currency_compact(med_budget)}).")
 
     st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
@@ -188,4 +196,4 @@ def render_overview_section(df: pd.DataFrame) -> None:
     yearly_stats = compute_yearly_aggregates(df)
     fig_time = plot_revenue_trend_over_time(yearly_stats)
     st.plotly_chart(fig_time, use_container_width=True)
-    st.caption("International box-office expansion drives higher mean revenues while median revenues remain steady.")
+    st.caption("Historical evolution of median and mean worldwide box office across release years.")
