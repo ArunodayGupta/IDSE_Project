@@ -6,7 +6,7 @@ Supervised regression platform based on the Kaggle TMDB Box Office Prediction da
 Structure:
 - Section A: Overview (KPIs, box office distribution, budget vs revenue, genres, longitudinal trends)
 - Section B: Data Explorer (dataset loading, preview, quality audit, reproducible cleaning, filtering)
-- Section C: ML Studio (model training, algorithm comparison, evaluation, interactive prediction, Kaggle submission)
+- Section C: ML Studio (model training, algorithm comparison, evaluation, interactive prediction)
 """
 
 import streamlit as st

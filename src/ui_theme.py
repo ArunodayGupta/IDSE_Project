@@ -471,14 +471,12 @@ def render_page_header(
     badge_type: str = "info"
 ) -> None:
     """Renders a standard, high-impact page or tab header."""
-    badge_html = f'<span class="badge-pill {escape_html(badge_type)}">{escape_html(badge)}</span>' if badge else ""
     st.markdown(f"""
         <div class="page-header-box">
             <div>
                 <h1 class="page-header-title">{escape_html(title)}</h1>
                 {f'<p class="page-header-sub">{escape_html(subtitle)}</p>' if subtitle else ''}
             </div>
-            <div>{badge_html}</div>
         </div>
     """, unsafe_allow_html=True)
 

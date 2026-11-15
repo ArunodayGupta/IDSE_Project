@@ -8,7 +8,6 @@ The platform guides practitioners through the complete data science lifecycle:
 - Longitudinal box office and production budget trends
 - Machine learning model training and multi-algorithm comparison (RMSLE, MAE, R2)
 - Interactive movie revenue prediction for upcoming films with outlier warnings
-- Kaggle test-set submission generation preserving competition identifiers
 
 Built with pure Python, **Streamlit**, **Plotly**, and **Scikit-Learn**.
 
@@ -19,8 +18,8 @@ Built with pure Python, **Streamlit**, **Plotly**, and **Scikit-Learn**.
 The dashboard is organized into three consolidated sections accessible from the sidebar:
 
 1. **Overview**: Executive box office trends, KPI scorecards (Total Movies, Average Worldwide Revenue, Median Worldwide Revenue, Median Movie Budget, Median Gross Multiple), and interactive Plotly visualizations (Revenue Distribution with logarithmic scaling, Production Budget vs. Revenue with 1.0x parity reference line, Median Worldwide Revenue by Genre, Longitudinal Box Office Trends, and Production Budget Distribution).
-2. **Data Explorer**: Dataset loading (default training dataset, custom CSV upload, or competition test dataset), interactive preview with keyword search, dynamic release year range slider, and language filtering, data quality audit (missing values and descriptive statistics), and reproducible data cleaning and transformation tools with CSV export.
-3. **ML Studio**: Consolidated predictive modeling workspace featuring target leakage prevention, leak-free train/validation splits, algorithm training and comparison (Dummy Regressor baseline, Random Forest Regressor, Extra Trees Regressor, and HistGradientBoosting Regressor), validation metrics (RMSLE as primary metric, MAE in USD, R2), actual vs. predicted parity scatter plots, residual distribution with documented 1st-99th percentile trimming, feature importance analysis, real-time interactive revenue prediction form with range and future date warnings, and Kaggle test-set submission generator (`submission.csv`).
+2. **Data Explorer**: Dataset partition selection (default training dataset `train.csv` or competition test dataset `test.csv`), interactive preview with keyword search, dynamic release year range slider, and language filtering, data quality audit (missing values and descriptive statistics), and reproducible data cleaning and transformation tools with CSV export.
+3. **ML Studio**: Consolidated predictive modeling workspace featuring target leakage prevention, leak-free train/validation splits, algorithm training and comparison (Dummy Regressor baseline, Random Forest Regressor, Extra Trees Regressor, and HistGradientBoosting Regressor), validation metrics (RMSLE as primary metric, MAE in USD, R2), actual vs. predicted parity scatter plots, residual distribution with documented 1st-99th percentile trimming, feature importance analysis, and real-time interactive revenue prediction form with range and future date warnings.
 
 ---
 

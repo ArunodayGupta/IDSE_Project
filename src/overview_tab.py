@@ -86,9 +86,7 @@ def render_overview_section(df: pd.DataFrame) -> None:
     """Renders Section A: Overview of the Movie Box Office Revenue dataset."""
     render_page_header(
         title="Overview",
-        subtitle="Worldwide movie box-office revenue trends and production budget dynamics",
-        badge="TMDB Dataset",
-        badge_type="info"
+        subtitle="Worldwide movie box-office revenue trends and production budget dynamics"
     )
 
     # 1. Compute High-Level Platform KPIs

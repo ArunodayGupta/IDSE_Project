@@ -6,19 +6,16 @@ Consolidated, single-page dashboard containing:
 2. Model training and comparison (Dummy baseline, Random Forest, Extra Trees, HistGradientBoosting).
 3. Model evaluation (RMSLE primary, MAE in USD, R2, actual vs predicted, residuals, feature importance).
 4. Interactive pre-release movie revenue prediction form with currency formatting & range warnings.
-5. Kaggle test-set submission generator (preserves test IDs, produces submission.csv).
 Strictly adheres to professional styling with zero emojis.
 """
 
 from typing import Dict, Any, Optional
-import io
 import datetime
 import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.model_selection import train_test_split
 
-from src.data_loader import load_tmdb_test_data, get_dataset_availability
 from src.feature_engineering import (
     engineer_movie_features,
     prepare_single_movie_features,
@@ -28,7 +25,6 @@ from src.feature_engineering import (
 from src.model_trainer import (
     train_movie_regressor,
     predict_single_movie,
-    generate_kaggle_submission,
     MODEL_REGISTRY,
 )
 from src.visualizations import (
@@ -43,7 +39,6 @@ from src.ui_theme import (
     render_kpi_row,
     render_metric_card,
     render_callout,
-    render_badge,
     COLOR_CYAN,
     COLOR_BLUE,
     COLOR_VIOLET,
@@ -100,9 +95,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
     """Renders the consolidated ML Studio dashboard."""
     render_page_header(
         title="ML Studio",
-        subtitle="Pre-release movie metadata modeling, evaluation, and worldwide revenue forecasting",
-        badge="Supervised Regression",
-        badge_type="info"
+        subtitle="Pre-release movie metadata modeling, evaluation, and worldwide revenue forecasting"
     )
 
     # Session State and Dataset Invalidation Management
@@ -455,55 +448,4 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
 
-    # -------------------------------------------------------------------------
-    # 4. Kaggle Test-Set Submission Generator
-    # -------------------------------------------------------------------------
-    render_section_header("Kaggle Test-Set Submission", "Generate predictions for the official TMDB competition test dataset")
-
-    avail = get_dataset_availability()
-    test_avail = avail.get("test.csv") is not None
-
-    if test_avail:
-        st.markdown("Generate official competition predictions for `test.csv` (4,398 films) preserving original movie IDs:")
-
-        if st.button("Generate Kaggle Submission (submission.csv)", key="btn_gen_submission"):
-            with st.spinner(f"Retraining {active_res['model_name']} on 100% of labeled training data and predicting on test.csv..."):
-                raw_test, _ = load_tmdb_test_data()
-                if raw_test is not None:
-                    submission_df = generate_kaggle_submission(
-                        model_key=eval_model_key,
-                        hyperparams=active_res.get("hyperparams", {}),
-                        raw_train_df=raw_df,
-                        raw_test_df=raw_test,
-                        random_state=42
-                    )
-                    st.session_state["ml_kaggle_submission"] = submission_df
-                    st.success(f"Generated {len(submission_df):,} test predictions successfully.")
-                else:
-                    st.error("Failed to load test.csv.")
-
-        if "ml_kaggle_submission" in st.session_state:
-            sub_df = st.session_state["ml_kaggle_submission"]
-            st.markdown("**Submission Preview:**")
-            st.dataframe(sub_df.head(8), use_container_width=True)
-
-            sub_buf = io.StringIO()
-            sub_df.to_csv(sub_buf, index=False)
-            st.download_button(
-                label="Download submission.csv",
-                data=sub_buf.getvalue(),
-                file_name="submission.csv",
-                mime="text/csv",
-                key="btn_download_sub_csv"
-            )
-    else:
-        render_callout(
-            title="test.csv Not Detected",
-            body=(
-                "test.csv was not detected in project directories. "
-                "Place test.csv into 'data/' or 'tmdb-box-office-prediction/' to enable Kaggle test prediction generation."
-            ),
-            callout_type="warning"
-        )

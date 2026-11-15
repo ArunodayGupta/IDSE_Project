@@ -164,22 +164,19 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
     """Renders Section B: Data Explorer tab."""
     render_page_header(
         title="Data Explorer",
-        subtitle="Inspect, filter, audit quality, and prepare movie dataset records",
-        badge="Dataset Tools",
-        badge_type="info"
+        subtitle="Inspect, filter, audit quality, and prepare movie dataset records"
     )
 
     # -------------------------------------------------------------------------
     # 1. Dataset Loading Controls
     # -------------------------------------------------------------------------
-    render_section_header("Dataset Loading", "Select active dataset source or upload custom CSV")
+    render_section_header("Dataset Loading", "Select active dataset partition")
 
     avail = get_dataset_availability()
     src_choice = st.radio(
         "Dataset Source",
         options=[
             "Default Training Dataset (train.csv)",
-            "Upload Custom CSV File",
             "Competition Test Dataset (test.csv)",
         ],
         index=0,
@@ -190,8 +187,6 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
 
     # Invalidate stale cleaning state if dataset source changed
     current_source_key = f"src_{src_choice}"
-    if src_choice == "Upload Custom CSV File":
-        current_source_key += f"_{st.session_state.get('explorer_csv_uploader_filename', '')}"
 
     if st.session_state.get("active_clean_source") != current_source_key:
         st.session_state.pop("tmdb_cleaned_data", None)
@@ -214,27 +209,6 @@ def render_data_explorer_section(raw_df: pd.DataFrame) -> None:
         else:
             active_df = raw_df
             active_label = "train.csv"
-
-    elif src_choice == "Upload Custom CSV File":
-        uploaded_file = st.file_uploader("Upload CSV File", type=["csv"], key="explorer_csv_uploader")
-        if uploaded_file is not None:
-            st.session_state["explorer_csv_uploader_filename"] = uploaded_file.name
-            try:
-                active_df = pd.read_csv(uploaded_file)
-                active_label = uploaded_file.name
-                st.success(f"Loaded {len(active_df):,} rows and {active_df.shape[1]} columns from {uploaded_file.name}")
-                render_callout(
-                    title="Custom Dataset Scope Notice",
-                    body=(
-                        "Uploaded datasets are available for exploratory inspection and cleaning only. "
-                        "The ML Studio workspace is configured to train exclusively on the labeled training dataset."
-                    ),
-                    callout_type="info"
-                )
-            except Exception as e:
-                st.error(f"Error parsing uploaded file: {str(e)}")
-        else:
-            st.info("Upload a CSV file to inspect custom movie metadata.")
 
     elif src_choice == "Competition Test Dataset (test.csv)":
         test_df, test_msg = load_tmdb_test_data()
