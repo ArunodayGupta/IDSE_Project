@@ -1,31 +1,37 @@
 """
 ml_studio_tab.py
 Section C: ML Studio for TMDB Worldwide Movie Box Office Revenue Prediction.
-Consolidated, single-page dashboard containing:
+
+Production-focused dashboard containing:
 1. Target leakage prevention & pre-release feature configuration.
-2. Model training and comparison (Dummy baseline, Random Forest, Extra Trees, HistGradientBoosting).
-3. Model evaluation (RMSLE primary, MAE in USD, R2, actual vs predicted, residuals, feature importance).
-4. Interactive pre-release movie revenue prediction form with currency formatting & range warnings.
+2. Production model evaluation & diagnostics (RMSLE primary, MAE in USD, R2, actual vs predicted,
+   residuals, feature importance) using the serialized production model artifact.
+3. Interactive pre-release movie revenue prediction form with currency formatting & range warnings.
+
 Strictly adheres to professional styling with zero emojis.
+Does not contain model-training controls, training loops, or training session state.
 """
 
 from typing import Dict, Any, Optional
+import os
+from pathlib import Path
 import datetime
+import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
 
 from src.feature_engineering import (
     engineer_movie_features,
     prepare_single_movie_features,
     CORE_GENRES,
-    TOP_LANGUAGES,
 )
 from src.model_trainer import (
-    train_movie_regressor,
+    compute_rmsle,
+    extract_feature_importances,
     predict_single_movie,
-    MODEL_REGISTRY,
 )
 from src.visualizations import (
     plot_actual_vs_predicted,
@@ -37,7 +43,6 @@ from src.ui_theme import (
     render_page_header,
     render_section_header,
     render_kpi_row,
-    render_metric_card,
     render_callout,
     COLOR_CYAN,
     COLOR_BLUE,
@@ -45,6 +50,49 @@ from src.ui_theme import (
     COLOR_SUCCESS,
     COLOR_WARNING,
 )
+
+MODEL_FILENAME = "best_movie_revenue_model.joblib"
+
+MODEL_DISPLAY_NAMES: Dict[str, str] = {
+    "lightgbm": "LightGBM Regressor (Tuned Champion)",
+    "random_forest": "Random Forest Regressor",
+    "extra_trees": "Extra Trees Regressor",
+    "hist_gradient_boosting": "HistGradientBoosting Regressor",
+    "catboost": "CatBoost Regressor",
+    "xgboost": "XGBoost Regressor",
+    "dummy": "Dummy Baseline (Median)",
+}
+
+
+def resolve_model_path(filename: str = MODEL_FILENAME) -> Optional[str]:
+    """Resolves the absolute path of the serialized model artifact from candidate locations."""
+    cwd = Path.cwd().resolve()
+    candidate_paths = [
+        cwd / filename,
+        cwd.parent / filename,
+        cwd / "models" / filename,
+        cwd.parent / "models" / filename,
+        Path(__file__).resolve().parent.parent / filename,
+    ]
+    for p in candidate_paths:
+        if p.is_file():
+            return str(p.resolve())
+    return None
+
+
+@st.cache_resource(show_spinner=False)
+def load_saved_model_artifact(model_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Loads and caches the serialized production machine learning model bundle."""
+    resolved = model_path or resolve_model_path()
+    if not resolved or not os.path.isfile(resolved):
+        return None
+    try:
+        bundle = joblib.load(resolved)
+        if isinstance(bundle, dict) and "pipeline" in bundle:
+            return bundle
+        return None
+    except Exception:
+        return None
 
 
 @st.cache_data(show_spinner=False)
@@ -92,25 +140,11 @@ def get_cached_features_and_splits(
 
 
 def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
-    """Renders the consolidated ML Studio dashboard."""
+    """Renders the ML Studio dashboard focused on evaluation, diagnostics, and prediction."""
     render_page_header(
         title="ML Studio",
         subtitle="Pre-release movie metadata modeling, evaluation, and worldwide revenue forecasting"
     )
-
-    # Session State and Dataset Invalidation Management
-    dataset_fingerprint = f"{len(raw_df)}_{raw_df.shape[1]}_{id(raw_df)}"
-    if st.session_state.get("ml_active_dataset_fp") != dataset_fingerprint:
-        st.session_state["ml_studio_models"] = {}
-        st.session_state["ml_active_dataset_fp"] = dataset_fingerprint
-
-    # Prepare features and train/validation split using leak-free pipeline
-    split_bundle = get_cached_features_and_splits(raw_df, test_size=0.2, random_state=42)
-    X_train = split_bundle["X_train"]
-    y_train = split_bundle["y_train"]
-    X_val = split_bundle["X_val"]
-    y_val = split_bundle["y_val"]
-    stats = split_bundle["stats"]
 
     # Target leakage prevention notice
     render_callout(
@@ -125,147 +159,106 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         callout_type="info"
     )
 
-    # -------------------------------------------------------------------------
-    # 1. Model Training & Comparison Controls
-    # -------------------------------------------------------------------------
-    render_section_header("Model Training & Comparison", "Configure hyperparameters and compare algorithms on validation data")
+    # Load serialized production model bundle
+    model_artifact = load_saved_model_artifact()
 
-    t_col1, t_col2 = st.columns([1, 1], gap="medium")
-
-    with t_col1:
-        model_options = {
-            "dummy": "Dummy Regressor (Baseline)",
-            "random_forest": "Random Forest Regressor",
-            "extra_trees": "Extra Trees Regressor",
-            "hist_gradient_boosting": "HistGradientBoosting Regressor",
-        }
-        selected_model_key = st.selectbox(
-            "Select Algorithm",
-            options=list(model_options.keys()),
-            format_func=lambda k: model_options[k],
-            index=1,
-            key="ml_algo_select"
+    if model_artifact is None:
+        render_callout(
+            title="Saved Model Artifact Not Available",
+            body=(
+                f"The production model artifact ('{MODEL_FILENAME}') could not be located in the project directory. "
+                "Diagnostic visualizations and live revenue predictions require this pre-trained artifact. "
+                "Please verify that the file exists in the repository root."
+            ),
+            callout_type="warning"
         )
+        return
 
-        st.caption(MODEL_REGISTRY[selected_model_key]["description"])
+    # Extract artifact components
+    pipeline = model_artifact["pipeline"]
+    training_stats = model_artifact.get("training_stats")
+    raw_model_name = model_artifact.get("model_name", "lightgbm")
+    model_display_name = MODEL_DISPLAY_NAMES.get(raw_model_name, raw_model_name.title())
+    hyperparams = model_artifact.get("hyperparameters", {})
+    saved_timestamp = model_artifact.get("saved_timestamp", "Serialized Production Model")
 
-    with t_col2:
-        # Dynamic Hyperparameter Controls
-        hyperparams: Dict[str, Any] = {}
-        if selected_model_key in ("random_forest", "extra_trees"):
-            p1, p2, p3 = st.columns(3)
-            with p1:
-                hyperparams["n_estimators"] = st.slider("Estimators", 20, 200, 100, step=10, key=f"{selected_model_key}_nest")
-            with p2:
-                hyperparams["max_depth"] = st.slider("Max Depth", 4, 25, 12, step=1, key=f"{selected_model_key}_depth")
-            with p3:
-                hyperparams["min_samples_split"] = st.slider("Min Split", 2, 10, 4, step=1, key=f"{selected_model_key}_split")
+    # Prepare features and train/validation split using leak-free pipeline
+    split_bundle = get_cached_features_and_splits(raw_df, test_size=0.2, random_state=42)
+    X_val = split_bundle["X_val"]
+    y_val = split_bundle["y_val"]
+    stats = training_stats if training_stats else split_bundle["stats"]
 
-        elif selected_model_key == "hist_gradient_boosting":
-            p1, p2, p3 = st.columns(3)
-            with p1:
-                hyperparams["max_iter"] = st.slider("Max Iterations", 30, 250, 100, step=10, key="hgb_iter")
-            with p2:
-                hyperparams["max_depth"] = st.slider("Max Depth", 3, 12, 6, step=1, key="hgb_depth")
-            with p3:
-                hyperparams["learning_rate"] = st.slider("Learning Rate", 0.01, 0.30, 0.08, step=0.01, key="hgb_lr")
+    # Evaluate the loaded model on the validation partition
+    y_val_log_pred = pipeline.predict(X_val)
+    y_val_pred = np.clip(np.expm1(y_val_log_pred), 0, None)
+    y_val_arr = y_val.values
 
-        elif selected_model_key == "dummy":
-            st.info("Dummy baseline predicts median training set revenue with zero tunable hyperparameters.")
+    # Validation Metrics
+    rmsle = compute_rmsle(y_val_arr, y_val_pred)
+    mae = float(mean_absolute_error(y_val_arr, y_val_pred))
+    r2 = float(r2_score(y_val_arr, y_val_pred))
+    residuals = y_val_arr - y_val_pred
 
-    # Train Model button
-    if st.button("Train Model", type="primary", key="btn_train_model"):
-        with st.spinner(f"Fitting {model_options[selected_model_key]} on log1p(revenue)..."):
-            res = train_movie_regressor(
-                model_key=selected_model_key,
-                hyperparams=hyperparams,
-                X_train=X_train,
-                y_train=y_train,
-                X_val=X_val,
-                y_val=y_val,
-                random_state=42
-            )
-            st.session_state["ml_studio_models"][selected_model_key] = res
-            st.session_state["ml_active_model_key"] = selected_model_key
-            st.success(f"Trained {res['model_name']} in {res['fit_duration_sec']}s. Validation RMSLE: {res['rmsle']:.4f}")
-
-    # Auto-train default models on first load if registry is empty
-    if not st.session_state.get("ml_studio_models"):
-        with st.spinner("Initializing baseline and Random Forest models..."):
-            res_dummy = train_movie_regressor("dummy", {}, X_train, y_train, X_val, y_val)
-            st.session_state["ml_studio_models"]["dummy"] = res_dummy
-
-            res_rf = train_movie_regressor("random_forest", {"n_estimators": 100, "max_depth": 12}, X_train, y_train, X_val, y_val)
-            st.session_state["ml_studio_models"]["random_forest"] = res_rf
-            st.session_state["ml_active_model_key"] = "random_forest"
-
-    trained_registry = st.session_state["ml_studio_models"]
-
-    # Model Comparison Table (Displays only actually trained models)
-    if trained_registry:
-        table_rows = []
-        best_rmsle = min(m["rmsle"] for m in trained_registry.values())
-
-        for k, m in trained_registry.items():
-            is_best = (m["rmsle"] == best_rmsle)
-            table_rows.append({
-                "Algorithm": m["model_name"] + (" (Lowest RMSLE)" if is_best else ""),
-                "RMSLE (Primary)": f"{m['rmsle']:.4f}",
-                "MAE (USD)": f"${m['mae']:,.0f}",
-                "R2 Score": f"{m['r2']:.4f}",
-                "Fit Time": f"{m['fit_duration_sec']:.2f}s",
-                "_key": k,
-                "_rmsle_raw": m["rmsle"]
-            })
-
-        df_comp = pd.DataFrame(table_rows).sort_values(by="_rmsle_raw").reset_index(drop=True)
-        display_comp = df_comp[["Algorithm", "RMSLE (Primary)", "MAE (USD)", "R2 Score", "Fit Time"]]
-        st.markdown("**Session Model Comparison:**")
-        st.dataframe(display_comp, use_container_width=True)
-
-    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
+    # Extract feature importances directly from loaded pipeline
+    preprocessor = pipeline.named_steps.get("preprocessor")
+    if preprocessor and hasattr(preprocessor, "transformers"):
+        num_cols = preprocessor.transformers[0][2]
+        cat_cols = preprocessor.transformers[1][2]
+        df_importances = extract_feature_importances(pipeline, num_cols, cat_cols)
+    else:
+        df_importances = pd.DataFrame(columns=["feature", "importance"])
 
     # -------------------------------------------------------------------------
-    # 2. Model Evaluation & Diagnostics
+    # 1. Model Evaluation & Diagnostics
     # -------------------------------------------------------------------------
-    render_section_header("Model Evaluation & Diagnostics", "Validation metrics, parity analysis, residuals, and feature importance")
-
-    active_key = st.session_state.get("ml_active_model_key", "random_forest")
-    # Allow user to toggle active model for inspection
-    eval_model_key = st.selectbox(
-        "Inspect Model Results",
-        options=list(trained_registry.keys()),
-        format_func=lambda k: trained_registry[k]["model_name"],
-        index=list(trained_registry.keys()).index(active_key) if active_key in trained_registry else 0,
-        key="ml_inspect_model_select"
+    render_section_header(
+        "Model Evaluation & Diagnostics",
+        "Holdout validation metrics, parity analysis, residuals, and feature importance from saved model"
     )
 
-    active_res = trained_registry[eval_model_key]
+    # Active Model Metadata Banner
+    param_summary = ", ".join(f"{k}={v}" for k, v in list(hyperparams.items())[:6]) if hyperparams else "Tuned Production Configuration"
+    st.markdown(f"""
+        <div style="background: rgba(20, 28, 46, 0.7); border: 1px solid #1E2B44; border-left: 3px solid {COLOR_CYAN}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #F8FAFC;">Active Model: {model_display_name}</span>
+                    <span style="font-size: 0.75rem; color: #64748B; margin-left: 8px;">(Artifact: {MODEL_FILENAME})</span>
+                </div>
+                <div style="font-size: 0.72rem; color: #94A3B8;">
+                    Saved: {saved_timestamp}
+                </div>
+            </div>
+            <div style="font-size: 0.75rem; color: #94A3B8; margin-top: 4px; font-family: monospace;">
+                Hyperparameters: {param_summary}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
 
     # Metric KPI Cards
     eval_kpis = [
         {
-            "title": "Selected Model",
-            "value": active_res["model_name"],
-            "subtext": "Active Evaluation",
+            "title": "Production Model",
+            "value": model_display_name.split("(")[0].strip(),
+            "subtext": "Loaded from Artifact",
             "accent_color": COLOR_CYAN
         },
         {
             "title": "Validation RMSLE",
-            "value": f"{active_res['rmsle']:.4f}",
+            "value": f"{rmsle:.4f}",
             "subtext": "Primary Evaluation Metric (Lower is Better)",
-            "accent_color": COLOR_SUCCESS if active_res['rmsle'] < 2.5 else COLOR_WARNING
+            "accent_color": COLOR_SUCCESS if rmsle < 2.5 else COLOR_WARNING
         },
         {
             "title": "Validation MAE",
-            "value": format_currency_compact(active_res["mae"]),
-            "subtext": f"Exact: ${active_res['mae']:,.0f}",
+            "value": format_currency_compact(mae),
+            "subtext": f"Exact: ${mae:,.0f}",
             "accent_color": COLOR_BLUE
         },
         {
             "title": "Coefficient of Determination (R2)",
-            "value": f"{active_res['r2']:.4f}",
-            "subtext": "Variance Explained on Validation Partition",
+            "value": f"{r2:.4f}",
+            "subtext": "Variance Explained on Holdout",
             "accent_color": COLOR_VIOLET
         }
     ]
@@ -278,34 +271,34 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
 
     with e_col1:
         fig_scatter = plot_actual_vs_predicted(
-            active_res["y_val_true"],
-            active_res["y_val_pred"],
-            model_name=active_res["model_name"]
+            y_val_arr,
+            y_val_pred,
+            model_name=model_display_name
         )
         st.plotly_chart(fig_scatter, use_container_width=True)
         st.caption("Points closer to the diagonal reference line indicate agreement between predicted and actual revenue.")
 
     with e_col2:
-        fig_res = plot_residuals_distribution(active_res["residuals"])
+        fig_res = plot_residuals_distribution(residuals)
         st.plotly_chart(fig_res, use_container_width=True)
         st.caption("Residual distribution shows prediction errors (actual minus predicted revenue) in millions USD.")
 
-    # Feature Importance Chart (Handled safely for models without feature importances)
-    if not active_res["feature_importances"].empty:
-        fig_imp = plot_feature_importance(active_res["feature_importances"], top_n=15)
+    # Feature Importance Chart
+    if not df_importances.empty:
+        fig_imp = plot_feature_importance(df_importances, top_n=15)
         st.plotly_chart(fig_imp, use_container_width=True)
-        st.caption("Relative feature importance values derived from tree splits in the fitted model.")
+        st.caption(f"Top 15 relative feature importance values derived from {model_display_name}.")
     else:
-        st.info(f"Feature importances are not directly available for {active_res['model_name']}.")
+        st.info(f"Feature importances are not directly available for the loaded model architecture.")
 
     st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # 3. Interactive Revenue Prediction
+    # 2. Interactive Revenue Prediction
     # -------------------------------------------------------------------------
     render_section_header("Interactive Revenue Prediction", "Estimate worldwide box-office receipts for an upcoming film")
 
-    st.markdown("Enter pre-release specifications to generate a real-time revenue estimate using the selected model:")
+    st.markdown("Enter pre-release specifications to generate a real-time revenue estimate using the production champion model:")
 
     with st.form("form_interactive_prediction"):
         p_col1, p_col2, p_col3 = st.columns(3)
@@ -399,7 +392,6 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         }
 
         single_feature_df = prepare_single_movie_features(movie_dict, stats)
-        pipeline = active_res["pipeline"]
         predicted_usd = predict_single_movie(pipeline, single_feature_df)
 
         # Range / Outlier validation warnings
@@ -440,12 +432,10 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
                     ${predicted_usd:,.0f} USD
                 </div>
                 <div style="font-size: 0.92rem; color: #00D2FF; font-weight: 600;">
-                    Model: {active_res['model_name']} | Validation RMSLE: {active_res['rmsle']:.4f}
+                    Model: {model_display_name} | Validation RMSLE: {rmsle:.4f}
                 </div>
                 <div style="font-size: 0.82rem; color: #94A3B8; margin-top: 8px;">
                     {multiple_html}
                 </div>
             </div>
         """, unsafe_allow_html=True)
-
-

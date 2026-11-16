@@ -152,7 +152,7 @@ def extract_feature_importances(
     Extracts feature names and relative importance values from tree-based estimators.
     Returns an empty DataFrame for algorithms without feature_importances_ (e.g. HistGradientBoosting).
     """
-    estimator = pipeline.named_steps.get("estimator")
+    estimator = pipeline.named_steps.get("estimator") or pipeline.named_steps.get("regressor")
     preprocessor = pipeline.named_steps.get("preprocessor")
 
     if not hasattr(estimator, "feature_importances_"):
