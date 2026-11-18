@@ -1,0 +1,15 @@
+Model,Model_Key,Is_Tuned,CV_RMSLE_Mean,CV_RMSLE_Std,Holdout_RMSLE,Holdout_MAE,Holdout_R2,Training_Time_Sec
+Dummy Baseline (Median),dummy,False,3.142,0.2007,3.0203,66076090.86,-0.1811,0.049
+Random Forest (Baseline),random_forest,False,2.2081,0.0909,2.0241,37769438.91,0.6632,0.522
+Extra Trees (Baseline),extra_trees,False,2.2654,0.112,1.9926,37917547.79,0.6669,0.528
+HistGradientBoosting (Baseline),hist_gradient_boosting,False,2.1992,0.1146,2.0592,38997927.25,0.6501,1.407
+XGBoost (Baseline),xgboost,False,2.2006,0.118,2.0369,39132848.0,0.6194,0.26
+LightGBM (Baseline),lightgbm,False,2.2067,0.1096,2.0845,38338241.95,0.6483,0.391
+CatBoost (Baseline),catboost,False,2.2326,0.1316,2.0719,43140491.42,0.4962,0.447
+Random Forest (Tuned),random_forest,True,2.1636,0.0925,2.0227,37594319.19,0.6623,1.667
+Extra Trees (Tuned),extra_trees,True,2.1753,0.1002,2.0084,38369129.08,0.6585,2.183
+HistGradientBoosting (Tuned),hist_gradient_boosting,True,2.174,0.1165,2.046,39301261.33,0.6105,4.595
+XGBoost (Tuned),xgboost,True,2.1749,0.1108,2.0099,38219508.0,0.6618,0.602
+LightGBM (Tuned),lightgbm,True,2.1576,0.0828,2.0192,37055915.73,0.6662,4.235
+CatBoost (Tuned),catboost,True,2.1761,0.1124,1.9981,40217785.38,0.6109,2.526
+Stacking Ensemble (Top 3 OOF Blend),stacking_ensemble,True,2.1486,0.0962,1.9982,37126558.34,0.6708,0.019

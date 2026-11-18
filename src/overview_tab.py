@@ -16,18 +16,24 @@ Strictly adheres to professional styling with zero emojis.
 """
 
 from typing import Dict, Any, List, Optional
+import os
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
 
-from src.data_loader import safe_parse_json, parse_release_date, load_tmdb_test_data
-from src.feature_engineering import ALL_FEATURE_COLUMNS, CORE_GENRES, MAJOR_STUDIOS
+from src.data_loader import safe_parse_json, parse_release_date, load_tmdb_test_data, load_tmdb_train_data
+from src.feature_engineering import ALL_FEATURE_COLUMNS, CORE_GENRES, MAJOR_STUDIOS, engineer_movie_features
 from src.visualizations import (
     plot_revenue_distribution,
     plot_budget_vs_revenue,
     plot_revenue_by_genre,
     plot_revenue_trend_over_time,
     plot_budget_distribution,
+    plot_budget_vs_revenue_franchise,
+    plot_genre_budget_heatmap,
+    plot_shap_summary_bar,
     format_currency_compact,
 )
 from src.ui_theme import (
@@ -95,6 +101,106 @@ def compute_yearly_aggregates(df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index()
 
     return stats.sort_values(by="release_year")
+
+
+@st.cache_data(show_spinner=False)
+def compute_shap_explanation_data(sample_size: int = 350, random_state: int = 42) -> Optional[Dict[str, Any]]:
+    """
+    Computes and caches SHAP values from the saved production model artifact.
+    Uses fitted TreeExplainer on a representative sample of labeled records.
+    """
+    cwd = Path.cwd().resolve()
+    model_paths = [
+        cwd / "best_movie_revenue_model.joblib",
+        cwd.parent / "best_movie_revenue_model.joblib",
+        Path(__file__).resolve().parent.parent / "best_movie_revenue_model.joblib"
+    ]
+    resolved_path = None
+    for p in model_paths:
+        if p.is_file():
+            resolved_path = str(p.resolve())
+            break
+
+    if not resolved_path:
+        return None
+
+    try:
+        import shap
+        bundle = joblib.load(resolved_path)
+        pipeline = bundle["pipeline"]
+        stats = bundle.get("training_stats")
+        model_name = bundle.get("model_name", "lightgbm")
+
+        raw_df, _ = load_tmdb_train_data()
+        if raw_df is None or raw_df.empty:
+            return None
+
+        valid_raw = raw_df[pd.to_numeric(raw_df["revenue"], errors="coerce") > 0].copy()
+        X_mat, _, _ = engineer_movie_features(valid_raw, is_train=True, stats=stats)
+
+        preproc = pipeline.named_steps.get("preprocessor")
+        regressor = pipeline.named_steps.get("regressor")
+        if preproc is None or regressor is None:
+            return None
+
+        X_trans = preproc.transform(X_mat)
+        raw_feature_names = preproc.get_feature_names_out()
+        feature_names = [f.replace("num__", "").replace("cat__", "").replace("remainder__", "") for f in raw_feature_names]
+
+        rng = np.random.RandomState(random_state)
+        sample_indices = rng.choice(len(X_mat), size=min(sample_size, len(X_mat)), replace=False)
+        X_sample = X_trans[sample_indices]
+
+        # TreeExplainer for tree estimators
+        explainer = shap.TreeExplainer(regressor)
+        shap_values = explainer.shap_values(X_sample)
+
+        mean_abs = np.mean(np.abs(shap_values), axis=0)
+        shap_ranking_df = pd.DataFrame({
+            "feature": feature_names,
+            "mean_abs_shap": mean_abs
+        }).sort_values(by="mean_abs_shap", ascending=False).reset_index(drop=True)
+
+        return {
+            "model_name": model_name,
+            "regressor_class": regressor.__class__.__name__,
+            "shap_values": shap_values,
+            "X_sample": X_sample,
+            "feature_names": feature_names,
+            "shap_ranking_df": shap_ranking_df,
+            "sample_size": len(sample_indices)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def render_shap_beeswarm_figure(shap_data: Dict[str, Any]):
+    """Renders the SHAP beeswarm figure styled to match DataLab's dark theme."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import shap
+
+    fig = plt.figure(figsize=(10, 6), facecolor="#0B132B")
+    shap.summary_plot(
+        shap_data["shap_values"],
+        shap_data["X_sample"],
+        feature_names=shap_data["feature_names"],
+        max_display=16,
+        show=False,
+        color_bar=True
+    )
+    plt.gcf().patch.set_facecolor("#0B132B")
+    ax = plt.gca()
+    ax.set_facecolor("#0B132B")
+    ax.tick_params(colors="#F8FAFC", labelsize=10)
+    ax.xaxis.label.set_color("#F8FAFC")
+    ax.yaxis.label.set_color("#F8FAFC")
+    for spine in ax.spines.values():
+        spine.set_color("#1E2B44")
+    plt.title("SHAP Feature Impact Beeswarm (Log-Revenue Prediction Space)", color="#F8FAFC", fontsize=13, pad=15)
+    plt.tight_layout()
+    return fig
 
 
 def render_overview_section(df: pd.DataFrame) -> None:
@@ -213,6 +319,172 @@ def render_overview_section(df: pd.DataFrame) -> None:
     fig_time = plot_revenue_trend_over_time(yearly_stats)
     st.plotly_chart(fig_time, use_container_width=True)
     st.caption("Historical evolution of median and mean worldwide box office across release years.")
+
+    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+
+    # -------------------------------------------------------------------------
+    # 2B. Revenue Drivers & Feature Interactions
+    # -------------------------------------------------------------------------
+    render_section_header(
+        "Revenue Drivers & Feature Interactions",
+        "Investigating franchise revenue multiples, genre-budget interaction heatmaps, and SHAP model explainability"
+    )
+
+    # 1. Budget vs Revenue: Franchise vs Standalone
+    st.markdown("#### 1. Budget vs Revenue — Franchise vs Standalone Movies")
+    st.markdown(
+        "Examining how production investment translates to worldwide box-office receipts for franchise properties "
+        "(sequels, prequels, shared cinematic universes) versus standalone original films."
+    )
+
+    # Calculate summary statistics for franchise vs standalone
+    valid_bf = df[(pd.to_numeric(df["budget"], errors="coerce") > 0) & (pd.to_numeric(df["revenue"], errors="coerce") > 0)].copy()
+    if not valid_bf.empty and "belongs_to_collection" in valid_bf.columns:
+        col = valid_bf["belongs_to_collection"]
+        is_franchise = (
+            col.notna()
+            & (col.astype(str).str.strip() != "")
+            & (col.astype(str).str.strip() != "[]")
+            & (col.astype(str).str.strip() != "{}")
+            & (col.astype(str).str.strip().str.lower() != "nan")
+        )
+        fran_df = valid_bf[is_franchise]
+        stand_df = valid_bf[~is_franchise]
+
+        n_fran = len(fran_df)
+        n_stand = len(stand_df)
+        med_b_fran = float(fran_df["budget"].median()) if n_fran > 0 else 0.0
+        med_r_fran = float(fran_df["revenue"].median()) if n_fran > 0 else 0.0
+        med_m_fran = float((fran_df["revenue"] / fran_df["budget"]).median()) if n_fran > 0 else 0.0
+
+        med_b_stand = float(stand_df["budget"].median()) if n_stand > 0 else 0.0
+        med_r_stand = float(stand_df["revenue"].median()) if n_stand > 0 else 0.0
+        med_m_stand = float((stand_df["revenue"] / stand_df["budget"]).median()) if n_stand > 0 else 0.0
+
+        franchise_kpis = [
+            {
+                "title": "Franchise Movies",
+                "value": f"{n_fran:,}",
+                "subtext": f"Median Budget: {format_currency_compact(med_b_fran)}",
+                "subtext_neutral": True,
+                "accent_color": COLOR_CYAN
+            },
+            {
+                "title": "Franchise Median Revenue",
+                "value": format_currency_compact(med_r_fran),
+                "subtext": f"Median Multiple: {med_m_fran:.2f}x gross",
+                "subtext_neutral": True,
+                "accent_color": COLOR_CYAN
+            },
+            {
+                "title": "Standalone Movies",
+                "value": f"{n_stand:,}",
+                "subtext": f"Median Budget: {format_currency_compact(med_b_stand)}",
+                "subtext_neutral": True,
+                "accent_color": COLOR_VIOLET
+            },
+            {
+                "title": "Standalone Median Revenue",
+                "value": format_currency_compact(med_r_stand),
+                "subtext": f"Median Multiple: {med_m_stand:.2f}x gross",
+                "subtext_neutral": True,
+                "accent_color": COLOR_VIOLET
+            }
+        ]
+        render_kpi_row(franchise_kpis)
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+    fig_franchise = plot_budget_vs_revenue_franchise(df)
+    st.plotly_chart(fig_franchise, use_container_width=True)
+
+    render_callout(
+        title="Statistical Interpretation: Association vs Causation & Gross Multiple Definition",
+        body=(
+            "<b>1. Association vs Causation:</b> Franchise movies exhibit a significantly higher median gross multiple (3.63x vs 1.56x) "
+            "and substantially higher median box-office revenues across equivalent budget levels. However, franchise membership is an "
+            "<i>associational indicator</i>, not a direct causal lever: studios typically greenlight sequels only for concepts that demonstrated "
+            "proven market appeal, and franchise releases receive broader exhibitor theater allocations and substantial promotional support.<br>"
+            "<b>2. Gross Multiple is NOT Profit or ROI:</b> The gross revenue-to-budget multiple measures top-line theatrical receipts relative to negative production cost. "
+            "It does not represent net profit or return on investment: theatrical exhibitors retain roughly 45%–55% of box office ticket sales, and negative cost excludes "
+            "distribution fees, prints and advertising (P&A) marketing campaigns, debt financing costs, and gross profit participations."
+        ),
+        callout_type="info"
+    )
+
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+
+    # 2. Genre vs Budget Category: Revenue Heatmap
+    st.markdown("#### 2. Genre vs Budget Category — Revenue Heatmap")
+    st.markdown(
+        "Analyzing how median box-office receipts vary across film genres when segmented by production investment quartiles "
+        "(Q1: ≤ $5.2M, Q2: $5.2M–$16.0M, Q3: $16.0M–$40.0M, Q4: > $40.0M). "
+        "Multi-genre titles contribute to each declared genre, and cells with fewer than 10 observations are masked for statistical reliability."
+    )
+
+    fig_heatmap = plot_genre_budget_heatmap(df, min_sample=10)
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+    render_callout(
+        title="Statistical Interpretation: Capital Efficiency vs High-Budget Scaling",
+        body=(
+            "<b>1. Low-Budget Capital Efficiency:</b> In the lowest budget quartile (Q1 ≤ $5.2M), <b>Horror</b> achieves the highest median box office ($10.4M across 90 films), "
+            "substantially outperforming Action ($5.9M) and Drama ($3.2M) at comparable expenditure. This highlights strong empirical genre efficiency for concept-driven horror.<br>"
+            "<b>2. High-Budget Scaling:</b> In the highest budget tier (Q4 > $40.0M), visual spectacle and broad-audience genres command dominant median revenues: "
+            "<b>Animation</b> leads with $347.4M (47 films), followed by <b>Adventure</b> ($297.1M, 173 films) and <b>Fantasy</b> ($223.5M, 84 films).<br>"
+            "<b>3. Sample Thresholding:</b> Cells with fewer than 10 movies (e.g. Documentary in Q3/Q4, Foreign in Q3/Q4) are masked to prevent small-sample distortion."
+        ),
+        callout_type="info"
+    )
+
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+
+    # 3. SHAP Summary Plot
+    st.markdown("#### 3. SHAP Summary Plot — Understanding Model Feature Impact")
+    st.markdown(
+        "Shapley Additive exPlanations (SHAP) decompose predictions from the serialized production pipeline (`best_movie_revenue_model.joblib`), "
+        "revealing which engineered pre-release features exert the strongest directional pull on predicted worldwide box-office revenue."
+    )
+
+    shap_data = compute_shap_explanation_data(sample_size=350, random_state=42)
+
+    if shap_data is None:
+        st.warning("Production model artifact ('best_movie_revenue_model.joblib') is not present. SHAP summary cannot be generated.")
+    elif "error" in shap_data:
+        st.warning(f"Unable to compute SHAP values: {shap_data['error']}")
+    else:
+        # Display SHAP Beeswarm Figure
+        fig_shap = render_shap_beeswarm_figure(shap_data)
+        st.pyplot(fig_shap, clear_figure=True)
+        st.caption(f"SHAP beeswarm summary plot calculated across {shap_data['sample_size']} representative films using {shap_data['regressor_class']} TreeExplainer.")
+
+        # Interactive Bar Chart of Top 15 Mean |SHAP| Values
+        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+        fig_shap_bar = plot_shap_summary_bar(shap_data["shap_ranking_df"], top_n=15)
+        st.plotly_chart(fig_shap_bar, use_container_width=True)
+
+        # Top 15 Ranking Table
+        with st.expander("View Top 15 Features Ranked by Mean Absolute SHAP Impact", expanded=False):
+            display_table = shap_data["shap_ranking_df"].head(15).copy()
+            display_table.columns = ["Feature Name", "Mean |SHAP| (Log Scale)"]
+            display_table["Mean |SHAP| (Log Scale)"] = display_table["Mean |SHAP| (Log Scale)"].apply(lambda x: f"{x:.4f}")
+            display_table.index = range(1, len(display_table) + 1)
+            st.table(display_table)
+
+        render_callout(
+            title="Understanding SHAP in Log-Revenue Prediction Space",
+            body=(
+                "<b>1. Target Space Transformation:</b> Our machine learning models are trained to predict <code>log1p(revenue)</code>. "
+                "Consequently, each SHAP value measures the feature's additive contribution to the <i>natural log of worldwide revenue</i>, "
+                "not a direct linear dollar increment. An impact of +1.0 in SHAP space corresponds approximately to an $e^1 \\approx 2.72$-fold increase in predicted gross revenue.<br>"
+                "<b>2. Directional Impact (Color and Horizontal Position):</b> Points to the right of the center line indicate that the feature pulled predicted revenue higher; "
+                "points to the left indicate downward pull. High feature values are colored reddish-magenta, and low values are blue.<br>"
+                "<b>3. Key Predictive Drivers:</b> Production budget (<code>budget</code>, <code>log_budget</code>), major studio backing (<code>is_major_studio</code>), "
+                "theatrical runtime (<code>runtime</code>), franchise affiliation (<code>has_collection</code>), and cast size (<code>cast_size</code>) "
+                "are the dominant drivers identified by the model.<br>"
+                "<b>4. Attribution != Causation:</b> SHAP attributions reflect statistical associations learned by tree partitions, not causal interventions."
+            ),
+            callout_type="info"
+        )
 
     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
 

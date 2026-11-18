@@ -28,3 +28,5 @@ Thumbs.db
 # Data files (Keep the folder, ignore generated CSVs if placed in data/)
 data/*.csv
 !data/.gitkeep
+!data/model_comparison_results.csv
+!data/model_holdout_predictions.csv

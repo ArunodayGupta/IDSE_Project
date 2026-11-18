@@ -21,6 +21,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 
+from src.data_loader import safe_parse_json
 from src.ui_theme import (
     apply_figure_theme,
     COLOR_CYAN,
@@ -454,3 +455,528 @@ def plot_feature_importance(importance_df: pd.DataFrame, top_n: int = 15) -> go.
     fig.update_yaxes(title_text="", tickfont=dict(color=TEXT_PRIMARY, size=11))
 
     return apply_figure_theme(fig, title=f"Top {top_n} Pre-Release Predictive Features", height=420)
+
+
+# -----------------------------------------------------------------------------
+# Section D: Revenue Insights & Feature Interactions
+# -----------------------------------------------------------------------------
+
+def plot_budget_vs_revenue_franchise(df: pd.DataFrame) -> go.Figure:
+    """
+    Renders Production Budget vs Worldwide Revenue with Franchise vs Standalone comparison.
+    Both axes use logarithmic scale. Includes separate OLS trendlines for both categories.
+    Excludes zero/missing budgets and non-positive revenue.
+    """
+    if df is None or df.empty or "budget" not in df.columns or "revenue" not in df.columns:
+        return create_empty_chart("Budget vs Revenue: Franchise vs Standalone", height=480)
+
+    # Filter movies with valid positive budget and revenue
+    b_num = pd.to_numeric(df["budget"], errors="coerce")
+    r_num = pd.to_numeric(df["revenue"], errors="coerce")
+    valid = df[(b_num > 0) & (r_num > 0)].copy()
+    if valid.empty:
+        return create_empty_chart("Budget vs Revenue (No Positive Records)", height=480)
+
+    valid["budget"] = pd.to_numeric(valid["budget"], errors="coerce")
+    valid["revenue"] = pd.to_numeric(valid["revenue"], errors="coerce")
+    valid["multiple"] = valid["revenue"] / valid["budget"]
+
+    # Parse collection field consistently with feature engineering
+    if "belongs_to_collection" in valid.columns:
+        col = valid["belongs_to_collection"]
+        is_franchise = (
+            col.notna()
+            & (col.astype(str).str.strip() != "")
+            & (col.astype(str).str.strip() != "[]")
+            & (col.astype(str).str.strip() != "{}")
+            & (col.astype(str).str.strip().str.lower() != "nan")
+        )
+    else:
+        is_franchise = pd.Series(False, index=valid.index)
+
+    valid["category"] = np.where(is_franchise, "Franchise Movie", "Standalone Film")
+    if "title" not in valid.columns:
+        valid["title"] = "Movie #" + valid.index.astype(str)
+
+    fig = go.Figure()
+
+    category_config = [
+        {"cat": "Standalone Film", "color": COLOR_VIOLET, "line_dash": "dash", "name": "Standalone Film"},
+        {"cat": "Franchise Movie", "color": COLOR_CYAN, "line_dash": "dot", "name": "Franchise Movie"},
+    ]
+
+    for cfg in category_config:
+        sub = valid[valid["category"] == cfg["cat"]].copy()
+        if sub.empty:
+            continue
+
+        customdata = np.stack((
+            sub["title"].fillna("Unknown Title"),
+            sub["budget"].apply(format_currency_compact),
+            sub["revenue"].apply(format_currency_compact),
+            sub["category"],
+            sub["multiple"]
+        ), axis=-1)
+
+        # Scatter points
+        fig.add_trace(go.Scatter(
+            x=sub["budget"],
+            y=sub["revenue"],
+            mode="markers",
+            name=f"{cfg['name']} (N={len(sub):,})",
+            marker=dict(
+                size=6,
+                color=cfg["color"],
+                opacity=0.68,
+                line=dict(width=0.5, color=BORDER_SUBTLE)
+            ),
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Classification: %{customdata[3]}<br>"
+                "Budget: %{customdata[1]} ($%{x:,.0f})<br>"
+                "Revenue: %{customdata[2]} ($%{y:,.0f})<br>"
+                "Gross Multiple: %{customdata[4]:.2f}x<extra></extra>"
+            )
+        ))
+
+        # OLS Trendline in log-log space
+        if len(sub) > 5:
+            log_x = np.log10(sub["budget"].values)
+            log_y = np.log10(sub["revenue"].values)
+            poly = np.polyfit(log_x, log_y, deg=1)
+            x_line = np.linspace(log_x.min(), log_x.max(), 50)
+            y_line = poly[0] * x_line + poly[1]
+            fig.add_trace(go.Scatter(
+                x=10 ** x_line,
+                y=10 ** y_line,
+                mode="lines",
+                name=f"{cfg['name']} Trendline",
+                line=dict(color=cfg["color"], width=2.2, dash=cfg["line_dash"]),
+                hoverinfo="skip"
+            ))
+
+    # Reference 1.0x parity line: Revenue == Budget
+    min_val = max(1e4, min(valid["budget"].min(), valid["revenue"].min()))
+    max_val = max(valid["budget"].max(), valid["revenue"].max())
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode="lines",
+        name="1.0x Parity (Rev = Budget)",
+        line=dict(color=COLOR_WARNING, width=1.5, dash="dashdot"),
+        hoverinfo="skip"
+    ))
+
+    fig.update_xaxes(type="log", title_text="Production Budget (USD, Log Scale)")
+    fig.update_yaxes(type="log", title_text="Worldwide Revenue (USD, Log Scale)")
+
+    return apply_figure_theme(
+        fig,
+        title="Production Budget vs Worldwide Revenue: Franchise vs Standalone",
+        height=480
+    )
+
+
+def plot_genre_budget_heatmap(df: pd.DataFrame, min_sample: int = 10) -> go.Figure:
+    """
+    Renders interactive Heatmap of Genre vs Budget Quartiles.
+    Cell color reflects median worldwide revenue on a log color scale.
+    Cell annotations display the sample count (number of movies).
+    Cells with fewer than min_sample movies are masked as insufficient sample size.
+    A movie belonging to multiple genres contributes to each applicable genre.
+    """
+    if df is None or df.empty or "budget" not in df.columns or "revenue" not in df.columns or "genres" not in df.columns:
+        return create_empty_chart("Genre vs Budget Category Revenue Heatmap", height=540)
+
+    b_num = pd.to_numeric(df["budget"], errors="coerce")
+    r_num = pd.to_numeric(df["revenue"], errors="coerce")
+    valid = df[(b_num > 0) & (r_num > 0)].copy()
+    if valid.empty:
+        return create_empty_chart("Genre vs Budget Category (No Positive Records)", height=540)
+
+    valid["budget"] = pd.to_numeric(valid["budget"], errors="coerce")
+    valid["revenue"] = pd.to_numeric(valid["revenue"], errors="coerce")
+
+    # Quantiles for budget categories (4 quartiles)
+    try:
+        q_bins = valid["budget"].quantile([0.0, 0.25, 0.50, 0.75, 1.0]).values
+        q_bins[0] = 0.0
+        for i in range(1, len(q_bins)):
+            if q_bins[i] <= q_bins[i-1]:
+                q_bins[i] = q_bins[i-1] + 1.0
+
+        q_labels = [
+            f"Q1: Lower\n(≤ {format_currency_compact(q_bins[1])})",
+            f"Q2: Lower-Mid\n({format_currency_compact(q_bins[1])} - {format_currency_compact(q_bins[2])})",
+            f"Q3: Upper-Mid\n({format_currency_compact(q_bins[2])} - {format_currency_compact(q_bins[3])})",
+            f"Q4: Higher\n(> {format_currency_compact(q_bins[3])})"
+        ]
+        valid["budget_cat"] = pd.cut(valid["budget"], bins=q_bins, labels=q_labels, include_lowest=True)
+    except Exception:
+        valid["budget_cat"] = pd.qcut(valid["budget"], q=4, duplicates="drop")
+        q_labels = [str(c) for c in valid["budget_cat"].cat.categories]
+
+    # Expand multi-genre memberships
+    rows = []
+    for _, row in valid.iterrows():
+        b_cat = row["budget_cat"]
+        rev = row["revenue"]
+        bud = row["budget"]
+        parsed_g = safe_parse_json(row.get("genres"))
+        for g in parsed_g:
+            if isinstance(g, dict) and "name" in g and str(g["name"]).strip():
+                rows.append({
+                    "genre": str(g["name"]).strip(),
+                    "budget_cat": str(b_cat),
+                    "revenue": rev,
+                    "budget": bud
+                })
+
+    if not rows:
+        return create_empty_chart("Genre vs Budget Category (No Parsable Genres)", height=540)
+
+    gdf = pd.DataFrame(rows)
+    genre_totals = gdf.groupby("genre")["revenue"].count()
+    top_genres = genre_totals[genre_totals >= 15].index.tolist()
+    gdf = gdf[gdf["genre"].isin(top_genres)]
+
+    piv_count = gdf.pivot_table(index="genre", columns="budget_cat", values="revenue", aggfunc="count", fill_value=0)
+    piv_med = gdf.pivot_table(index="genre", columns="budget_cat", values="revenue", aggfunc="median")
+
+    piv_count = piv_count.reindex(columns=q_labels, fill_value=0)
+    piv_med = piv_med.reindex(columns=q_labels)
+
+    genre_sort_order = gdf.groupby("genre")["revenue"].median().sort_values(ascending=True).index
+    piv_count = piv_count.reindex(index=genre_sort_order)
+    piv_med = piv_med.reindex(index=genre_sort_order)
+
+    z_vals = []
+    text_annotations = []
+    hover_texts = []
+
+    for g in piv_med.index:
+        z_row = []
+        t_row = []
+        h_row = []
+        for c in q_labels:
+            cnt = int(piv_count.loc[g, c]) if g in piv_count.index and c in piv_count.columns else 0
+            med = piv_med.loc[g, c] if g in piv_med.index and c in piv_med.columns else np.nan
+
+            if cnt >= min_sample and pd.notna(med) and med > 0:
+                z_row.append(np.log10(med))
+                t_row.append(f"{cnt}<br><span style='font-size:9px;'>{format_currency_compact(med)}</span>")
+                h_row.append(
+                    f"<b>Genre:</b> {g}<br>"
+                    f"<b>Budget Tier:</b> {c.replace(chr(10), ' ')}<br>"
+                    f"<b>Median Revenue:</b> ${med:,.0f} ({format_currency_compact(med)})<br>"
+                    f"<b>Movie Count:</b> {cnt} films"
+                )
+            else:
+                z_row.append(None)
+                if cnt > 0:
+                    t_row.append(f"N={cnt}<br><span style='font-size:8px;color:#94A3B8;'>(&lt;{min_sample})</span>")
+                    h_row.append(
+                        f"<b>Genre:</b> {g}<br>"
+                        f"<b>Budget Tier:</b> {c.replace(chr(10), ' ')}<br>"
+                        f"<b>Median Revenue:</b> Insufficient sample (&lt;{min_sample} films)<br>"
+                        f"<b>Movie Count:</b> {cnt} films"
+                    )
+                else:
+                    t_row.append("-")
+                    h_row.append(f"<b>Genre:</b> {g}<br><b>Tier:</b> {c.replace(chr(10), ' ')}<br>No movies recorded")
+        z_vals.append(z_row)
+        text_annotations.append(t_row)
+        hover_texts.append(h_row)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_vals,
+        x=q_labels,
+        y=list(piv_med.index),
+        text=text_annotations,
+        texttemplate="%{text}",
+        textfont=dict(size=10, color="#FFFFFF"),
+        hovertext=hover_texts,
+        hoverinfo="text",
+        colorscale=[
+            [0.0, "#0B1528"],
+            [0.2, "#1E2B44"],
+            [0.4, "#1E3A8A"],
+            [0.65, "#0284C7"],
+            [0.85, "#00D2FF"],
+            [1.0, "#38BDF8"]
+        ],
+        colorbar=dict(
+            title=dict(text="Log10 Median Revenue", font=dict(size=11, color=TEXT_MUTED)),
+            tickvals=[6, 7, 8, 8.5],
+            ticktext=["$1M", "$10M", "$100M", "$316M"],
+            tickfont=dict(size=10, color=TEXT_MUTED),
+            len=0.85
+        )
+    ))
+
+    fig.update_xaxes(title_text="Production Budget Quartile", tickfont=dict(size=11, color=TEXT_PRIMARY))
+    fig.update_yaxes(title_text="Film Genre", tickfont=dict(size=11, color=TEXT_PRIMARY))
+
+    return apply_figure_theme(
+        fig,
+        title=f"Genre vs Budget Category Revenue Heatmap (Min {min_sample} Films)",
+        height=540
+    )
+
+
+def plot_shap_summary_bar(shap_df: pd.DataFrame, top_n: int = 15) -> go.Figure:
+    """
+    Renders top features ranked by mean absolute SHAP value (impact on log1p revenue prediction).
+    """
+    if shap_df is None or shap_df.empty or "mean_abs_shap" not in shap_df.columns:
+        return create_empty_chart("SHAP Summary Not Available", height=420)
+
+    top_df = shap_df.head(top_n).sort_values(by="mean_abs_shap", ascending=True)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        y=top_df["feature"],
+        x=top_df["mean_abs_shap"],
+        orientation="h",
+        marker=dict(
+            color=COLOR_CYAN,
+            line=dict(color=BORDER_SUBTLE, width=1)
+        ),
+        hovertemplate="<b>%{y}</b><br>Mean |SHAP| (Log Space): %{x:.4f}<extra></extra>"
+    ))
+
+    fig.update_xaxes(title_text="Mean Absolute SHAP Value (Impact on Log-Revenue Space)")
+    fig.update_yaxes(title_text="", tickfont=dict(color=TEXT_PRIMARY, size=11))
+
+    return apply_figure_theme(
+        fig,
+        title=f"Top {top_n} Features by Model Impact (Mean |SHAP| in Log-Revenue Space)",
+        height=440
+    )
+
+
+# -----------------------------------------------------------------------------
+# Section E: Model Comparison Visualizations
+# -----------------------------------------------------------------------------
+
+def plot_model_comparison_rmsle(comp_df: pd.DataFrame) -> go.Figure:
+    """
+    Graph A: RMSLE Comparison Across Models.
+    Displays 5-fold CV mean RMSLE with standard deviation error bars alongside Holdout RMSLE.
+    Lower is better.
+    """
+    if comp_df is None or comp_df.empty or "Model" not in comp_df.columns:
+        return create_empty_chart("RMSLE Comparison Across Models", height=440)
+
+    df_sorted = comp_df.sort_values(by="CV_RMSLE_Mean", ascending=True).copy()
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        name="5-Fold CV Mean RMSLE",
+        x=df_sorted["Model"],
+        y=df_sorted["CV_RMSLE_Mean"],
+        error_y=dict(
+            type="data",
+            array=df_sorted["CV_RMSLE_Std"],
+            visible=True,
+            color=TEXT_PRIMARY,
+            thickness=1.2,
+            width=4
+        ),
+        marker=dict(color=COLOR_CYAN, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>CV Mean RMSLE: %{y:.4f}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Bar(
+        name="Holdout RMSLE (20% Split)",
+        x=df_sorted["Model"],
+        y=df_sorted["Holdout_RMSLE"],
+        marker=dict(color=COLOR_VIOLET, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>Holdout RMSLE: %{y:.4f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        barmode="group",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=11, color=TEXT_MUTED)
+        ),
+        xaxis=dict(tickangle=-30, tickfont=dict(size=10, color=TEXT_PRIMARY)),
+        yaxis=dict(title="RMSLE (Lower is Better)")
+    )
+
+    return apply_figure_theme(fig, title="Graph A: Cross-Validation vs Holdout RMSLE Across Models", height=440)
+
+
+def plot_model_comparison_mae(comp_df: pd.DataFrame) -> go.Figure:
+    """
+    Graph B: Holdout MAE Comparison Across Models in USD.
+    Lower is better.
+    """
+    if comp_df is None or comp_df.empty or "Holdout_MAE" not in comp_df.columns:
+        return create_empty_chart("MAE Comparison Across Models", height=420)
+
+    df_sorted = comp_df.sort_values(by="Holdout_MAE", ascending=True).copy()
+    text_labels = [format_currency_compact(v) for v in df_sorted["Holdout_MAE"]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df_sorted["Model"],
+        y=df_sorted["Holdout_MAE"],
+        text=text_labels,
+        textposition="outside",
+        textfont=dict(size=10, color=TEXT_PRIMARY),
+        marker=dict(color=COLOR_BLUE, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>Holdout MAE: $%{y:,.0f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        xaxis=dict(tickangle=-30, tickfont=dict(size=10, color=TEXT_PRIMARY)),
+        yaxis=dict(title="Holdout MAE in USD (Lower is Better)", tickprefix="$")
+    )
+
+    return apply_figure_theme(fig, title="Graph B: Holdout Mean Absolute Error (MAE in USD)", height=420)
+
+
+def plot_model_comparison_r2(comp_df: pd.DataFrame) -> go.Figure:
+    """
+    Graph C: Holdout R2 Comparison Across Models.
+    Higher is better.
+    """
+    if comp_df is None or comp_df.empty or "Holdout_R2" not in comp_df.columns:
+        return create_empty_chart("R2 Comparison Across Models", height=420)
+
+    df_sorted = comp_df.sort_values(by="Holdout_R2", ascending=False).copy()
+    text_labels = [f"{v:.4f}" for v in df_sorted["Holdout_R2"]]
+    colors = [COLOR_CYAN if i == 0 else COLOR_SUCCESS for i in range(len(df_sorted))]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df_sorted["Model"],
+        y=df_sorted["Holdout_R2"],
+        text=text_labels,
+        textposition="outside",
+        textfont=dict(size=10, color=TEXT_PRIMARY),
+        marker=dict(color=colors, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>Holdout R²: %{y:.4f}<extra></extra>"
+    ))
+
+    max_r2 = max(0.8, float(df_sorted["Holdout_R2"].max()) * 1.15) if not df_sorted.empty else 1.0
+
+    fig.update_layout(
+        xaxis=dict(tickangle=-30, tickfont=dict(size=10, color=TEXT_PRIMARY)),
+        yaxis=dict(title="Holdout R² Variance Explained (Higher is Better)", range=[-0.25, max_r2])
+    )
+
+    return apply_figure_theme(fig, title="Graph C: Holdout Explained Variance (R²)", height=420)
+
+
+def plot_training_time_vs_rmsle(comp_df: pd.DataFrame) -> go.Figure:
+    """
+    Graph D: Training Time vs Prediction Performance.
+    Scatter plot of training time (seconds) vs Holdout RMSLE.
+    Annotated with model names.
+    """
+    if comp_df is None or comp_df.empty or "Training_Time_Sec" not in comp_df.columns:
+        return create_empty_chart("Training Time vs RMSLE", height=440)
+
+    sub = comp_df[comp_df["Model_Key"] != "dummy"].copy()
+    if sub.empty:
+        sub = comp_df.copy()
+
+    short_names = [m.replace(" Regressor", "").replace(" Baseline", "") for m in sub["Model"]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=sub["Training_Time_Sec"],
+        y=sub["Holdout_RMSLE"],
+        mode="markers+text",
+        text=short_names,
+        textposition="top right",
+        textfont=dict(size=10, color=TEXT_PRIMARY),
+        marker=dict(
+            size=10,
+            color=np.where(sub["Is_Tuned"], COLOR_CYAN, COLOR_VIOLET),
+            line=dict(color=BORDER_SUBTLE, width=1.5),
+            symbol=np.where(sub["Is_Tuned"], "diamond", "circle")
+        ),
+        hovertemplate=(
+            "<b>%{text}</b><br>"
+            "Training Time: %{x:.2f}s<br>"
+            "Holdout RMSLE: %{y:.4f}<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        xaxis=dict(title="Model Training Time on 80% Split (Seconds)", rangemode="tozero"),
+        yaxis=dict(title="Holdout RMSLE (Lower is Better)")
+    )
+
+    return apply_figure_theme(fig, title="Graph D: Training Computational Cost vs Holdout Performance", height=440)
+
+
+def plot_tuning_improvement(comp_df: pd.DataFrame) -> go.Figure:
+    """
+    Graph E: Hyperparameter Tuning Improvement (Default vs Tuned CV RMSLE).
+    Compares baseline vs tuned 5-fold CV RMSLE for applicable architectures.
+    """
+    if comp_df is None or comp_df.empty:
+        return create_empty_chart("Hyperparameter Tuning Improvement", height=440)
+
+    keys = ["lightgbm", "random_forest", "xgboost", "hist_gradient_boosting", "extra_trees", "catboost"]
+    pairs = []
+    for k in keys:
+        base_rows = comp_df[(comp_df["Model_Key"] == k) & (~comp_df["Is_Tuned"])]
+        tuned_rows = comp_df[(comp_df["Model_Key"] == k) & (comp_df["Is_Tuned"])]
+        if not base_rows.empty and not tuned_rows.empty:
+            b_rmsle = float(base_rows.iloc[0]["CV_RMSLE_Mean"])
+            t_rmsle = float(tuned_rows.iloc[0]["CV_RMSLE_Mean"])
+            delta = b_rmsle - t_rmsle
+            pct = (delta / b_rmsle) * 100
+            name = str(base_rows.iloc[0]["Model"]).replace(" (Baseline)", "")
+            pairs.append({
+                "model": name,
+                "base_rmsle": b_rmsle,
+                "tuned_rmsle": t_rmsle,
+                "delta": delta,
+                "pct": pct
+            })
+
+    if not pairs:
+        return create_empty_chart("No Baseline vs Tuned Model Pairs Available", height=440)
+
+    df_pairs = pd.DataFrame(pairs).sort_values(by="delta", ascending=False)
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Bar(
+        name="Default Baseline CV RMSLE",
+        x=df_pairs["model"],
+        y=df_pairs["base_rmsle"],
+        marker=dict(color=COLOR_VIOLET, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>Default CV RMSLE: %{y:.4f}<extra></extra>"
+    ))
+
+    fig.add_trace(go.Bar(
+        name="Tuned Model CV RMSLE",
+        x=df_pairs["model"],
+        y=df_pairs["tuned_rmsle"],
+        marker=dict(color=COLOR_CYAN, line=dict(color=BORDER_SUBTLE, width=1)),
+        hovertemplate="<b>%{x}</b><br>Tuned CV RMSLE: %{y:.4f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=11, color=TEXT_MUTED)),
+        xaxis=dict(tickangle=-25, tickfont=dict(size=10, color=TEXT_PRIMARY)),
+        yaxis=dict(title="5-Fold CV RMSLE (Lower is Better)")
+    )
+
+    return apply_figure_theme(fig, title="Graph E: Hyperparameter Tuning Impact (Default vs Tuned CV RMSLE)", height=440)
