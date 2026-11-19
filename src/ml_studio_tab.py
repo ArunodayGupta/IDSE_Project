@@ -73,16 +73,16 @@ MODEL_DISPLAY_NAMES: Dict[str, str] = {
 def resolve_artifact_path(filename: str) -> Optional[str]:
     """Resolves the absolute path of a persistent artifact from candidate locations."""
     cwd = Path.cwd().resolve()
-    base_name = os.path.basename(filename)
     candidate_paths = [
         cwd / filename,
-        cwd / "data" / base_name,
-        cwd.parent / filename,
-        cwd.parent / "data" / base_name,
+        cwd / "data" / filename,
         cwd / "models" / filename,
+        cwd.parent / filename,
+        cwd.parent / "data" / filename,
         cwd.parent / "models" / filename,
         Path(__file__).resolve().parent.parent / filename,
-        Path(__file__).resolve().parent.parent / "data" / base_name,
+        Path(__file__).resolve().parent.parent / "data" / filename,
+        Path(__file__).resolve().parent.parent / "models" / filename,
     ]
     for p in candidate_paths:
         if p.is_file():
@@ -97,16 +97,25 @@ def resolve_model_path(filename: str = MODEL_FILENAME) -> Optional[str]:
 
 @st.cache_data(show_spinner=False)
 def load_model_comparison_artifacts() -> Dict[str, Any]:
-    """Loads and caches the persistent model comparison artifacts from data/ directory."""
-    results_path = resolve_artifact_path("data/model_comparison_results.csv") or resolve_artifact_path("model_comparison_results.csv")
-    preds_path = resolve_artifact_path("data/model_holdout_predictions.csv") or resolve_artifact_path("model_holdout_predictions.csv")
+    """Loads and caches the persistent model comparison artifacts."""
+    results_path = resolve_artifact_path("model_comparison_results.csv")
+    preds_path = resolve_artifact_path("model_holdout_predictions.csv")
+    meta_path = resolve_artifact_path("model_comparison_metadata.json")
 
     results_df = pd.read_csv(results_path) if results_path and os.path.isfile(results_path) else None
     preds_df = pd.read_csv(preds_path) if preds_path and os.path.isfile(preds_path) else None
+    meta_dict = None
+    if meta_path and os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta_dict = json.load(f)
+        except Exception:
+            pass
 
     return {
         "results_df": results_df,
         "preds_df": preds_df,
+        "meta_dict": meta_dict
     }
 
 
@@ -180,11 +189,8 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
     render_callout(
         title="Target Leakage Prevention Contract",
         body=(
-            "Predictive features are restricted strictly to pre-release metadata: production budget, "
-            "genres, runtime, release date, original language, production countries, production companies, "
-            "and cast/crew sizes. Post-release metrics (revenue, popularity, vote counts, and vote averages) "
-            "are completely excluded to ensure model validity. Preprocessing statistics are calculated "
-            "exclusively from training records."
+            "Features are strictly restricted to pre-release metadata (budget, genres, runtime, release timing, studio, cast/crew sizes). "
+            "Post-release metrics (popularity, votes, revenue) are completely excluded, and preprocessing parameters are derived strictly from training data."
         ),
         callout_type="info"
     )
@@ -212,10 +218,12 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
     hyperparams = model_artifact.get("hyperparameters", {})
     saved_timestamp = model_artifact.get("saved_timestamp", "Serialized Production Model")
 
+    # Prepare features and train/validation split using leak-free pipeline
     # Load persistent model comparison artifacts
     comp_artifacts = load_model_comparison_artifacts()
     results_df = comp_artifacts.get("results_df")
     preds_df = comp_artifacts.get("preds_df")
+    meta_dict = comp_artifacts.get("meta_dict")
 
     # Prepare stats for interactive prediction
     split_bundle = get_cached_features_and_splits(raw_df, test_size=0.2, random_state=42)
@@ -233,11 +241,11 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         render_callout(
             title="Model Comparison Artifacts Not Located",
             body=(
-                "The persistent evaluation artifacts (<code>data/model_comparison_results.csv</code>, "
-                "<code>data/model_holdout_predictions.csv</code>) were not found. "
-                "Please run the Jupyter notebook (<code>notebooks/exploratory_analysis.ipynb</code>) "
-                "to execute the end-to-end benchmark and generate verified performance records. "
-                "Retaining zero-fabrication integrity."
+                "The persistent evaluation artifacts (<code>model_comparison_results.csv</code>, "
+                "<code>model_holdout_predictions.csv</code>, <code>model_comparison_metadata.json</code>) "
+                "were not found in the project root. Please run the Jupyter notebook "
+                "(<code>notebooks/exploratory_analysis.ipynb</code>) to execute the end-to-end benchmark "
+                "and generate verified performance records. Retaining zero-fabrication integrity."
             ),
             callout_type="warning"
         )
@@ -297,25 +305,17 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
 
         # Dynamic Benchmark Summary Callout
         render_callout(
-            title="Comprehensive Multi-Metric Model Benchmark Interpretation",
+            title="Benchmark Findings & Model Selection Takeaways",
             body=(
-                "<b>1. Primary Metric (RMSLE) Leadership:</b> On 5-fold cross-validation, the <b>Stacking Ensemble</b> achieves the lowest mean RMSLE "
-                "(<b>2.1486 ± 0.0962</b>), followed by <b>LightGBM Tuned</b> (<b>2.1576 ± 0.0828</b>) and <b>Random Forest Tuned</b> (<b>2.1636 ± 0.0925</b>). "
-                "On the independent holdout partition, <b>Extra Trees Baseline</b> (<b>1.9926</b>), <b>CatBoost Tuned</b> (<b>1.9981</b>), and <b>Stacking Ensemble</b> (<b>1.9982</b>) "
-                "demonstrate superior tail robustness.<br>"
-                "<b>2. Dollar Accuracy (MAE):</b> <b>LightGBM Tuned</b> attains the lowest holdout Mean Absolute Error at <b>$37,055,916</b>, followed closely by the <b>Stacking Ensemble</b> ($37,126,558) "
-                "and <b>Random Forest Tuned</b> ($37,594,319). This indicates that LightGBM's leaf-wise tree splitting minimizes absolute dollar error more effectively on mainstream box-office distributions.<br>"
-                "<b>3. Variance Explained (R²):</b> The <b>Stacking Ensemble</b> explains the highest proportion of target variance on holdout records (<b>R² = 0.6708</b>), "
-                "followed by <b>Extra Trees Baseline</b> (0.6669) and <b>LightGBM Tuned</b> (0.6662). The Dummy baseline yields negative R² (-0.1811), confirming that constant median guessing fails to explain variance.<br>"
-                "<b>4. Computational Efficiency:</b> Stacking meta-learning (RidgeCV) takes only <b>0.07s</b> to fit on out-of-fold features. Among base tree estimators, <b>XGBoost</b> (0.81s) and <b>HistGradientBoosting</b> (1.70s) "
-                "train fastest, whereas <b>LightGBM</b> (5.34s) and <b>CatBoost</b> (3.77s) invest more computation to achieve superior leaf regularization.<br>"
-                "<b>5. Systematic Tuning Impact:</b> Hyperparameter search delivered consistent generalization gains across every model family: Extra Trees (-0.0901 RMSLE), CatBoost (-0.0565), LightGBM (-0.0492), Random Forest (-0.0445), and XGBoost (-0.0257).<br>"
-                "<b>6. CV vs Holdout Discrepancy:</b> Holdout RMSLE values (~1.99–2.02) are slightly lower than 5-fold CV scores (~2.15–2.20) because the 20% holdout split contains fewer extreme multi-billion outliers than certain training folds, demonstrating the importance of evaluating both cross-validation stability and independent holdout sets."
+                "• <b>Primary Metric (RMSLE):</b> <b>Stacking Ensemble</b> achieves the lowest 5-fold CV RMSLE (<b>2.1486 &plusmn; 0.0962</b>), followed by <b>LightGBM Tuned</b> (<b>2.1576</b>) and <b>Random Forest Tuned</b> (<b>2.1636</b>). On holdout, Extra Trees (1.9926), CatBoost (1.9981), and Stacking (1.9982) show the best tail robustness.<br>"
+                "• <b>Dollar Accuracy (MAE):</b> <b>LightGBM Tuned</b> secures the lowest holdout MAE (<b>$37.06M</b>), followed by Stacking ($37.13M) and Random Forest ($37.59M).<br>"
+                "• <b>Variance Explained (R²):</b> <b>Stacking Ensemble</b> captures the highest holdout variance (<b>R² = 0.6708</b>); LightGBM achieves <b>0.6662</b>.<br>"
+                "• <b>Tuning Gains:</b> 30-iteration hyperparameter tuning improved every family: Extra Trees (-0.0901 RMSLE), CatBoost (-0.0565), LightGBM (-0.0492), Random Forest (-0.0445), and XGBoost (-0.0257)."
             ),
             callout_type="info"
         )
 
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 2. Production Model Evaluation & Diagnostics
@@ -351,10 +351,9 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
     render_callout(
         title="Independent Holdout Evaluation Integrity Guarantee",
         body=(
-            "<b>Zero In-Sample Evaluation Leakage:</b> The validation metrics and diagnostic plots below are evaluated strictly on the "
+            "<b>Zero In-Sample Leakage:</b> Validation metrics and diagnostic plots are evaluated strictly on the "
             "<b>genuine untouched 20% holdout split (N = 600 movies)</b>, completely excluded from model training and tuning. "
-            "The serialized production artifact (<code>best_movie_revenue_model.joblib</code>) was retrained on 100% of labeled data "
-            "solely to maximize sample efficiency for live single-movie prediction below, and is NOT evaluated against its own training data."
+            "The production artifact (<code>best_movie_revenue_model.joblib</code>) was retrained on 100% data solely for live prediction."
         ),
         callout_type="success"
     )
@@ -369,6 +368,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
                     <span style="font-size: 0.75rem; color: #64748B; margin-left: 8px;">(Artifact: {MODEL_FILENAME})</span>
                 </div>
                 <div style="font-size: 0.72rem; color: #94A3B8;">
+                    Saved: {saved_timestamp}
                     Evaluation Data: {eval_data_source}
                 </div>
             </div>
@@ -389,7 +389,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         {
             "title": "Holdout RMSLE",
             "value": f"{rmsle:.4f}",
-            "subtext": "Primary Evaluation Metric (Lower is Better)",
+            "subtext": "Primary Metric (Lower is Better)",
             "accent_color": COLOR_SUCCESS if rmsle < 2.5 else COLOR_WARNING
         },
         {
@@ -399,7 +399,7 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
             "accent_color": COLOR_BLUE
         },
         {
-            "title": "Coefficient of Determination (R2)",
+            "title": "Holdout R²",
             "value": f"{r2:.4f}",
             "subtext": "Variance Explained on Holdout",
             "accent_color": COLOR_VIOLET

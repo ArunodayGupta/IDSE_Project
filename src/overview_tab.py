@@ -15,16 +15,15 @@ Presents:
 Strictly adheres to professional styling with zero emojis.
 """
 
-from typing import Dict, Any, List, Optional
-import os
-from pathlib import Path
+from typing import Dict, Any, Optional
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 
 from src.data_loader import safe_parse_json, parse_release_date, load_tmdb_test_data, load_tmdb_train_data
-from src.feature_engineering import ALL_FEATURE_COLUMNS, CORE_GENRES, MAJOR_STUDIOS, engineer_movie_features
+from src.feature_engineering import ALL_FEATURE_COLUMNS, engineer_movie_features
+from src.ml_studio_tab import resolve_model_path
 from src.visualizations import (
     plot_revenue_distribution,
     plot_budget_vs_revenue,
@@ -45,8 +44,6 @@ from src.ui_theme import (
     COLOR_BLUE,
     COLOR_VIOLET,
     COLOR_SUCCESS,
-    COLOR_WARNING,
-    COLOR_INFO,
 )
 
 
@@ -109,18 +106,7 @@ def compute_shap_explanation_data(sample_size: int = 350, random_state: int = 42
     Computes and caches SHAP values from the saved production model artifact.
     Uses fitted TreeExplainer on a representative sample of labeled records.
     """
-    cwd = Path.cwd().resolve()
-    model_paths = [
-        cwd / "best_movie_revenue_model.joblib",
-        cwd.parent / "best_movie_revenue_model.joblib",
-        Path(__file__).resolve().parent.parent / "best_movie_revenue_model.joblib"
-    ]
-    resolved_path = None
-    for p in model_paths:
-        if p.is_file():
-            resolved_path = str(p.resolve())
-            break
-
+    resolved_path = resolve_model_path()
     if not resolved_path:
         return None
 
@@ -398,45 +384,37 @@ def render_overview_section(df: pd.DataFrame) -> None:
     st.plotly_chart(fig_franchise, use_container_width=True)
 
     render_callout(
-        title="Statistical Interpretation: Association vs Causation & Gross Multiple Definition",
+        title="Key Takeaways: Franchise Multiples & Gross Revenue Definition",
         body=(
-            "<b>1. Association vs Causation:</b> Franchise movies exhibit a significantly higher median gross multiple (3.63x vs 1.56x) "
-            "and substantially higher median box-office revenues across equivalent budget levels. However, franchise membership is an "
-            "<i>associational indicator</i>, not a direct causal lever: studios typically greenlight sequels only for concepts that demonstrated "
-            "proven market appeal, and franchise releases receive broader exhibitor theater allocations and substantial promotional support.<br>"
-            "<b>2. Gross Multiple is NOT Profit or ROI:</b> The gross revenue-to-budget multiple measures top-line theatrical receipts relative to negative production cost. "
-            "It does not represent net profit or return on investment: theatrical exhibitors retain roughly 45%–55% of box office ticket sales, and negative cost excludes "
-            "distribution fees, prints and advertising (P&A) marketing campaigns, debt financing costs, and gross profit participations."
+            "• <b>Association vs Causation:</b> Franchise movies demonstrate a 3.63x median gross multiple (vs 1.56x standalone). Franchise status reflects studio selection of proven IP and wider exhibitor distribution, rather than pure causal lift.<br>"
+            "• <b>Gross Multiple vs Profit:</b> The revenue-to-budget ratio measures box-office ticket gross against production negative cost. Theaters typically retain ~50% of ticket receipts, and figures exclude marketing (P&A) and distribution expenses."
         ),
         callout_type="info"
     )
 
-    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
     # 2. Genre vs Budget Category: Revenue Heatmap
     st.markdown("#### 2. Genre vs Budget Category — Revenue Heatmap")
     st.markdown(
-        "Analyzing how median box-office receipts vary across film genres when segmented by production investment quartiles "
-        "(Q1: ≤ $5.2M, Q2: $5.2M–$16.0M, Q3: $16.0M–$40.0M, Q4: > $40.0M). "
-        "Multi-genre titles contribute to each declared genre, and cells with fewer than 10 observations are masked for statistical reliability."
+        "Median box-office receipts across film genres segmented by production budget quartiles "
+        "(Q1: &le; $5.2M, Q2: $5.2M–$16.0M, Q3: $16.0M–$40.0M, Q4: &gt; $40.0M). Multi-genre titles contribute to each declared genre."
     )
 
     fig_heatmap = plot_genre_budget_heatmap(df, min_sample=10)
     st.plotly_chart(fig_heatmap, use_container_width=True)
 
     render_callout(
-        title="Statistical Interpretation: Capital Efficiency vs High-Budget Scaling",
+        title="Key Takeaways: Genre Capital Efficiency & Scale",
         body=(
-            "<b>1. Low-Budget Capital Efficiency:</b> In the lowest budget quartile (Q1 ≤ $5.2M), <b>Horror</b> achieves the highest median box office ($10.4M across 90 films), "
-            "substantially outperforming Action ($5.9M) and Drama ($3.2M) at comparable expenditure. This highlights strong empirical genre efficiency for concept-driven horror.<br>"
-            "<b>2. High-Budget Scaling:</b> In the highest budget tier (Q4 > $40.0M), visual spectacle and broad-audience genres command dominant median revenues: "
-            "<b>Animation</b> leads with $347.4M (47 films), followed by <b>Adventure</b> ($297.1M, 173 films) and <b>Fantasy</b> ($223.5M, 84 films).<br>"
-            "<b>3. Sample Thresholding:</b> Cells with fewer than 10 movies (e.g. Documentary in Q3/Q4, Foreign in Q3/Q4) are masked to prevent small-sample distortion."
+            "• <b>Low-Budget Efficiency:</b> In Q1 (&le; $5.2M), <b>Horror</b> achieves the highest median box office ($10.4M), outperforming Action ($5.9M) and Drama ($3.2M) at comparable spend.<br>"
+            "• <b>High-Budget Scaling:</b> In Q4 (&gt; $40.0M), spectacle-driven genres lead: <b>Animation</b> ($347.4M), <b>Adventure</b> ($297.1M), and <b>Fantasy</b> ($223.5M).<br>"
+            "• <b>Sample Reliability:</b> Cells with under 10 films are masked to prevent small-sample distortion."
         ),
         callout_type="info"
     )
 
-    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
     # 3. SHAP Summary Plot
     st.markdown("#### 3. SHAP Summary Plot — Understanding Model Feature Impact")
@@ -458,7 +436,7 @@ def render_overview_section(df: pd.DataFrame) -> None:
         st.caption(f"SHAP beeswarm summary plot calculated across {shap_data['sample_size']} representative films using {shap_data['regressor_class']} TreeExplainer.")
 
         # Interactive Bar Chart of Top 15 Mean |SHAP| Values
-        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         fig_shap_bar = plot_shap_summary_bar(shap_data["shap_ranking_df"], top_n=15)
         st.plotly_chart(fig_shap_bar, use_container_width=True)
 
@@ -471,38 +449,25 @@ def render_overview_section(df: pd.DataFrame) -> None:
             st.table(display_table)
 
         render_callout(
-            title="Understanding SHAP in Log-Revenue Prediction Space",
+            title="Key Takeaways: SHAP in Log-Revenue Target Space",
             body=(
-                "<b>1. Target Space Transformation:</b> Our machine learning models are trained to predict <code>log1p(revenue)</code>. "
-                "Consequently, each SHAP value measures the feature's additive contribution to the <i>natural log of worldwide revenue</i>, "
-                "not a direct linear dollar increment. An impact of +1.0 in SHAP space corresponds approximately to an $e^1 \\approx 2.72$-fold increase in predicted gross revenue.<br>"
-                "<b>2. Directional Impact (Color and Horizontal Position):</b> Points to the right of the center line indicate that the feature pulled predicted revenue higher; "
-                "points to the left indicate downward pull. High feature values are colored reddish-magenta, and low values are blue.<br>"
-                "<b>3. Key Predictive Drivers:</b> Production budget (<code>budget</code>, <code>log_budget</code>), major studio backing (<code>is_major_studio</code>), "
-                "theatrical runtime (<code>runtime</code>), franchise affiliation (<code>has_collection</code>), and cast size (<code>cast_size</code>) "
-                "are the dominant drivers identified by the model.<br>"
-                "<b>4. Attribution != Causation:</b> SHAP attributions reflect statistical associations learned by tree partitions, not causal interventions."
+                "• <b>Log Multiplier Scale:</b> Models predict ln(revenue + 1); a +1.0 SHAP shift corresponds to an &asymp; e<sup>1</sup> &asymp; 2.72x gross revenue multiplier.<br>"
+                "• <b>Top Revenue Drivers:</b> Budget (<code>budget</code>, <code>log_budget</code>), major studio backing (<code>is_major_studio</code>), runtime, franchise affiliation (<code>has_collection</code>), and cast size exert the strongest directional pull.<br>"
+                "• <b>Directional Impact:</b> Red points indicate high feature values; rightward displacement increases predicted box-office gross."
             ),
             callout_type="info"
         )
 
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 3. Understanding the Dataset
     # -------------------------------------------------------------------------
     render_section_header(
         "Understanding the Dataset",
-        "Introduction to the TMDB Movie Box Office dataset, dimensions, and partition structure"
+        "TMDB Movie Box Office dataset dimensions, scope, and partition roles"
     )
 
-    st.markdown(
-        "Our project uses the **TMDB Movie Box Office Prediction dataset** to predict the worldwide theatrical "
-        "revenue of movies using historical movie metadata. The dataset contains rich information about movie budgets, "
-        "genres, production companies, cast, crew, release dates, runtime, and other pre-release characteristics."
-    )
-
-    # Dynamically resolve dataset dimensions
     test_df, _ = load_tmdb_test_data()
     n_train_movies = len(df)
     n_test_movies = len(test_df) if test_df is not None else 4398
@@ -510,75 +475,33 @@ def render_overview_section(df: pd.DataFrame) -> None:
     n_engineered = len(ALL_FEATURE_COLUMNS)
 
     dataset_summary_cards = [
-        {
-            "title": "Training Set",
-            "value": f"{n_train_movies:,}",
-            "subtext": "Historical labeled movies",
-            "subtext_neutral": True,
-            "accent_color": COLOR_CYAN
-        },
-        {
-            "title": "Testing Set",
-            "value": f"{n_test_movies:,}",
-            "subtext": "Unlabeled competition movies",
-            "subtext_neutral": True,
-            "accent_color": COLOR_BLUE
-        },
-        {
-            "title": "Raw Attributes",
-            "value": f"{n_train_cols}",
-            "subtext": "Original training columns (22 in test)",
-            "subtext_neutral": True,
-            "accent_color": COLOR_VIOLET
-        },
-        {
-            "title": "Engineered Features",
-            "value": f"{n_engineered}",
-            "subtext": "Extracted pre-release predictors",
-            "subtext_neutral": True,
-            "accent_color": COLOR_SUCCESS
-        },
-        {
-            "title": "Prediction Target",
-            "value": "Revenue (USD)",
-            "subtext": "Worldwide box office receipts",
-            "subtext_neutral": True,
-            "accent_color": COLOR_CYAN
-        }
+        {"title": "Training Set", "value": f"{n_train_movies:,}", "subtext": "Historical labeled movies", "subtext_neutral": True, "accent_color": COLOR_CYAN},
+        {"title": "Testing Set", "value": f"{n_test_movies:,}", "subtext": "Unlabeled competition movies", "subtext_neutral": True, "accent_color": COLOR_BLUE},
+        {"title": "Raw Attributes", "value": f"{n_train_cols}", "subtext": "23 original attributes (22 in test)", "subtext_neutral": True, "accent_color": COLOR_VIOLET},
+        {"title": "Engineered Features", "value": f"{n_engineered}", "subtext": "Pre-release predictors", "subtext_neutral": True, "accent_color": COLOR_SUCCESS},
+        {"title": "Prediction Target", "value": "Revenue (USD)", "subtext": "Worldwide box office receipts", "subtext_neutral": True, "accent_color": COLOR_CYAN}
     ]
     render_kpi_row(dataset_summary_cards)
 
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-
-    st.markdown("""
-        <div style="background: rgba(20, 28, 46, 0.7); border: 1px solid #1E2B44; border-radius: 8px; padding: 14px 18px; line-height: 1.55; font-size: 0.88rem; color: #CBD5E1;">
-            <b>Dataset Partition Roles:</b><br>
-            • <b>Training Dataset (train.csv):</b> Contains complete movie metadata alongside the true target variable (<code>revenue</code>). Used to perform exploratory data analysis, establish imputation baselines, cross-validate models, and tune hyperparameters.<br>
-            • <b>Testing Dataset (test.csv):</b> Contains identical pre-release movie metadata but excludes the <code>revenue</code> target column. Used to evaluate generalization on unseen future movies and generate competition submission forecasts.
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 4. Raw Dataset Column Dictionary
     # -------------------------------------------------------------------------
     render_section_header(
-        "Understanding the Original Dataset Columns",
-        "Comprehensive dictionary of all 23 original attributes across five functional categories"
+        "Original Dataset Column Dictionary",
+        "Reference dictionary of all 23 original attributes categorized by functional domain"
     )
 
-    st.markdown(
-        "The original TMDB dataset contains 23 raw columns (22 in the test set). To prevent cognitive overload, "
-        "these columns are categorized below with clear indicators of whether each field is "
-        "<span style='color: #10B981; font-weight: 600;'>Transformed into Predictive Features</span>, "
-        "<span style='color: #00D2FF; font-weight: 600;'>Target Variable</span>, or "
-        "<span style='color: #94A3B8; font-weight: 600;'>Excluded from Model</span>.",
-        unsafe_allow_html=True
-    )
+    tab_fin, tab_creat, tab_temp, tab_prod, tab_id = st.tabs([
+        "Financial & Target (2)",
+        "Creative & Marketing (6)",
+        "Temporal & Language (4)",
+        "Cast & Production (5)",
+        "Identifiers & Admin (6)",
+    ])
 
-    # Category 1: Financial & Target Attributes
-    with st.expander("1. Financial & Prediction Target Attributes (2 Columns)", expanded=True):
+    with tab_fin:
         st.markdown("""
 | Column | Description | Real Example from Dataset | Modeling Status |
 | :--- | :--- | :--- | :--- |
@@ -586,8 +509,7 @@ def render_overview_section(df: pd.DataFrame) -> None:
 | `budget` | Production budget of the movie in USD. Contains zeroes for unrecorded entries. | `14000000` ($14.0M USD) | **Transformed into Features** (`budget`, `log_budget`, `budget_is_zero`) |
         """)
 
-    # Category 2: Creative Content & Textual Metadata
-    with st.expander("2. Creative Content & Marketing Metadata (6 Columns)", expanded=False):
+    with tab_creat:
         st.markdown("""
 | Column | Description | Real Example from Dataset | Modeling Status |
 | :--- | :--- | :--- | :--- |
@@ -599,8 +521,7 @@ def render_overview_section(df: pd.DataFrame) -> None:
 | `poster_path` | Relative file path / hash of the movie poster image on TMDB CDN. | `'/tQtWuwvMf0hCc2QR2tkolwl7c3c.jpg'` | **Excluded from Model** (Image reference; computer vision out of scope) |
         """)
 
-    # Category 3: Temporal & Linguistic Attributes
-    with st.expander("3. Temporal & Linguistic Attributes (4 Columns)", expanded=False):
+    with tab_temp:
         st.markdown("""
 | Column | Description | Real Example from Dataset | Modeling Status |
 | :--- | :--- | :--- | :--- |
@@ -610,8 +531,7 @@ def render_overview_section(df: pd.DataFrame) -> None:
 | `spoken_languages` | Nested JSON list of all spoken dialogue languages. | `[{'iso_639_1': 'en', 'name': 'English'}]` | **Transformed into Features** (`language_count`) |
         """)
 
-    # Category 4: Cast, Crew & Production Entities
-    with st.expander("4. Cast, Crew & Production Entities (5 Columns)", expanded=False):
+    with tab_prod:
         st.markdown("""
 | Column | Description | Real Example from Dataset | Modeling Status |
 | :--- | :--- | :--- | :--- |
@@ -622,131 +542,86 @@ def render_overview_section(df: pd.DataFrame) -> None:
 | `belongs_to_collection` | Nested JSON dictionary with movie franchise details. | `[{'id': 313576, 'name': 'Hot Tub Time Machine Collection'}]` | **Transformed into Features** (`has_collection` binary franchise indicator) |
         """)
 
-    # Category 5: Identifiers & Administrative Attributes
-    with st.expander("5. Identifiers & Administrative Attributes (6 Columns)", expanded=False):
+    with tab_id:
         st.markdown("""
 | Column | Description | Real Example from Dataset | Modeling Status |
 | :--- | :--- | :--- | :--- |
 | `id` | Arbitrary database row index. | `1` | **Excluded from Model** (Identifier with zero generalizable predictive signal) |
 | `imdb_id` | External IMDb web identifier string (e.g. tt...). | `'tt2637294'` | **Excluded from Model** (External database key; no market signal) |
-| `title` | Localized commercial movie title. | `'Hot Tub Time Machine 2'` | **Excluded from Model** (High cardinality unique strings; high risk of memorization) |
+| `title` | Localized commercial movie title. | `'Hot Tub Time Machine 2'` | **Excluded from Model** (High cardinality unique strings; memorization risk) |
 | `original_title` | Native-language original release title. | `'Hot Tub Time Machine 2'` | **Excluded from Model** (High cardinality text) |
-| `status` | Release status (e.g. Released, Post Production, Rumored). | `'Released'` | **Excluded from Model** (Overwhelmingly homogeneous; risk of post-release leakage) |
+| `status` | Release status (e.g. Released, Post Production, Rumored). | `'Released'` | **Excluded from Model** (99%+ homogeneous; post-release leakage risk) |
 | `popularity` | Dynamic TMDB user community popularity metric. | `6.575393` | **Excluded from Model** (Post-release target leakage; computed from modern queries) |
         """)
 
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # 5. How We Transform Movie Data into 37 Predictive Features
+    # 5. Engineered Predictive Features (37 Total)
     # -------------------------------------------------------------------------
     render_section_header(
-        "How We Transform Movie Data into 37 Predictive Features",
-        "Pre-release feature extraction across 8 domain dimensions (37 total engineered features)"
+        "Engineered Predictive Features (37 Total)",
+        "Pre-release feature extraction across 8 domain dimensions"
     )
 
-    st.markdown(
-        "Raw movie information cannot be directly consumed by machine learning models in its unstructured form: "
-        "dates require temporal decomposition, nested JSON strings must be parsed into integer counts, and skewed financial "
-        "metrics demand variance stabilization. Our pipeline engineers **exactly 37 pre-release features** before categorical encoding:"
-    )
+    f_tab1, f_tab2, f_tab3, f_tab4 = st.tabs([
+        "Financial & Characteristics (5)",
+        "Release Timing & Geography (7)",
+        "Production Scale & Marketing (6)",
+        "Genre Flags (16) & Language (3)",
+    ])
 
-    feat_tab1, feat_tab2 = st.columns([1, 1], gap="medium")
+    with f_tab1:
+        st.markdown("""
+* **`budget`**: Reported production budget in USD (median imputation of $16M for unrecorded zeroes).
+* **`log_budget`**: Natural log transformation `log1p(budget)` to stabilize exponential variance across micro-indie and tentpole films.
+* **`budget_is_zero`**: Binary indicator (1 if original budget was 0 or missing, 0 otherwise) enabling tree models to distinguish unrecorded budgets from true low-cost productions.
+* **`runtime`**: Theatrical runtime in minutes (median imputation of 104 mins for missing values).
+* **`has_collection`**: Binary flag indicating franchise/cinematic universe affiliation (e.g. Marvel, Star Wars).
+        """)
 
-    with feat_tab1:
-        # Group A
-        with st.expander("A. Financial Features (3 Features)", expanded=True):
-            st.markdown("""
-* `budget`: Reported production budget in USD. Missing values or unrecorded zeroes are imputed using the positive-budget training partition median ($16,000,000).
-* `log_budget`: Natural logarithmic transformation calculated via `log1p(budget)` to stabilize exponential variance across micro-indie and tentpole films.
-* `budget_is_zero`: A dedicated binary indicator (1 if original budget was 0 or missing, 0 otherwise), enabling tree models to distinguish unrecorded budgets from true low-cost productions.
+    with f_tab2:
+        st.markdown("""
+* **`release_year`**: Calendar year of release, normalized for 2-digit century rollover (years > 2020 mapped to 1900s).
+* **`release_month`**: Calendar month of release (1 to 12) capturing holiday and summer corridors.
+* **`release_quarter`**: Financial quarter of release (1 to 4).
+* **`release_dayofweek`**: Day of the week of release (0 = Monday, 6 = Sunday).
+* **`release_is_weekend`**: Binary flag identifying Friday, Saturday, or Sunday releases (peak theatrical opening window).
+* **`country_count`**: Total count of sovereign nations contributing to production.
+* **`is_us_country`**: Binary flag indicating whether the primary production country is the United States.
+        """)
 
-**Domain Insight:** While production budget indicates the financial scale and visual spectacle of a project, budget alone does not guarantee box-office returns; many expensive productions fail to recoup production outlays.
-            """)
+    with f_tab3:
+        st.markdown("""
+* **`company_count`**: Total number of production companies credited.
+* **`is_major_studio`**: Binary flag indicating backing by major Hollywood distributors (*Warner Bros, Universal, Paramount, 20th Century Fox, Columbia, Walt Disney, Marvel, Sony, MGM, New Line, Lionsgate, DreamWorks*).
+* **`cast_size`**: Total count of credited actors appearing in the parsed cast list.
+* **`crew_size`**: Total count of technical, creative, and administrative crew members.
+* **`has_homepage`**: Binary flag indicating presence of an official promotional website.
+* **`has_tagline`**: Binary flag indicating presence of a promotional marketing slogan.
+        """)
 
-        # Group B
-        with st.expander("B. Movie Characteristics (2 Features)", expanded=True):
-            st.markdown("""
-* `runtime`: Theatrical duration in minutes. Non-positive or missing runtimes are imputed using the training median (104 minutes).
-* `has_collection`: Binary flag indicating whether the film belongs to an established movie franchise or cinematic universe (e.g. Marvel, Star Wars, James Bond).
-
-**Domain Insight:** Franchise films benefit from established intellectual property, built-in audience awareness, and lower customer acquisition friction, resulting in substantially higher median box office receipts.
-            """)
-
-        # Group C
-        with st.expander("C. Release Timing Features (5 Features)", expanded=True):
-            st.markdown("""
-* `release_year`: Calendar year of theatrical release (e.g. 1985, 2018). Normalized for 2-digit century rollover (years > 2020 mapped to 1900s).
-* `release_month`: Calendar month of release (1 to 12).
-* `release_quarter`: Financial quarter of release (1 to 4).
-* `release_dayofweek`: Day of the week of theatrical release (0 = Monday, 6 = Sunday).
-* `release_is_weekend`: Binary flag identifying Friday, Saturday, or Sunday releases (peak theatrical opening window).
-
-**Domain Insight:** Theatrical revenue exhibits strong seasonality. Studios intentionally target high-traffic release corridors such as Summer (May–July) and the Winter Holiday season (November–December).
-            """)
-
-        # Group D
-        with st.expander("D. Production Scale Features (4 Features)", expanded=True):
-            st.markdown("""
-* `company_count`: Total number of production companies credited.
-* `is_major_studio`: Binary indicator checking whether any producing studio matches major Hollywood distributors (*Warner Bros, Universal, Paramount, 20th Century Fox, Columbia, Walt Disney, Marvel, Sony, MGM, New Line, Lionsgate, DreamWorks*).
-* `cast_size`: Total count of credited actors appearing in the parsed cast list.
-* `crew_size`: Total count of technical, creative, and administrative crew members.
-
-**Domain Insight:** Major studio backing secures wide theatrical footprint (3,000+ screens) and extensive marketing muscle, providing a higher revenue floor than independent distributors.
-            """)
-
-    with feat_tab2:
-        # Group E
-        with st.expander("E. Genre Features (16 Features)", expanded=True):
-            st.markdown("""
-* `genre_count`: Total number of genres assigned to the title.
-* `primary_genre`: The first listed genre in the movie metadata (used as a categorical baseline).
+    with f_tab4:
+        st.markdown("""
+* **`genre_count`**: Total number of genres assigned to the movie.
+* **`primary_genre`**: First listed genre in movie metadata (categorical baseline).
 * **14 Explicit Binary Genre Indicators (0 or 1):**
-  - `genre_drama`, `genre_comedy`, `genre_thriller`, `genre_action`, `genre_romance`
-  - `genre_crime`, `genre_adventure`, `genre_horror`, `genre_scifi`, `genre_family`
-  - `genre_fantasy`, `genre_animation`, `genre_mystery`, `genre_documentary`
+  `genre_drama`, `genre_comedy`, `genre_thriller`, `genre_action`, `genre_romance`, `genre_crime`, `genre_adventure`, `genre_horror`, `genre_scifi`, `genre_family`, `genre_fantasy`, `genre_animation`, `genre_mystery`, `genre_documentary`.
+* **`language_count`**: Number of distinct spoken languages represented in dialogue.
+* **`is_english`**: Binary flag indicating whether the original production language is English.
+* **`original_language`**: Top 10 frequency-retained language code with rare languages mapped to `other`.
+        """)
 
-**Domain Insight:** Binary genre indicators allow multi-genre films (such as Action + Sci-Fi + Adventure) to activate multiple signals simultaneously, reflecting the cross-genre appeal typical of commercial blockbusters.
-            """)
+    render_callout(
+        title="Pipeline Dimensionality",
+        body="<b>37 Engineered Pre-Release Features:</b> 3 Financial + 2 Characteristics + 5 Timing + 16 Genre Flags + 4 Scale + 2 Geography + 3 Language + 2 Marketing. The ColumnTransformer one-hot encodes categorical attributes, expanding the matrix to 69 encoded modeling features.",
+        callout_type="info"
+    )
 
-        # Group F
-        with st.expander("F. Geographic Features (2 Features)", expanded=False):
-            st.markdown("""
-* `country_count`: Number of countries contributing to film production.
-* `is_us_country`: Binary flag indicating whether the primary production country is the United States (the primary domestic box-office engine).
-            """)
-
-        # Group G
-        with st.expander("G. Language Features (3 Features)", expanded=False):
-            st.markdown("""
-* `language_count`: Number of distinct spoken languages represented in dialogue.
-* `is_english`: Binary flag indicating whether original production language is English.
-* `original_language`: Cleaned categorical language code retaining high-frequency languages (`en`, `fr`, `es`, `zh`, `de`, `hi`, `ja`, `it`, `ko`, `ru`), grouping low-frequency languages into `other`.
-
-**Domain Insight:** English-language films benefit from immediate access to the global distribution market, whereas foreign-language titles typically rely on domestic territory receipts and specialty circuits.
-            """)
-
-        # Group H
-        with st.expander("H. Marketing Presence Features (2 Features)", expanded=False):
-            st.markdown("""
-* `has_homepage`: Binary flag indicating presence of an official promotional website.
-* `has_tagline`: Binary flag indicating presence of a promotional marketing slogan.
-
-**Domain Insight:** While these binary flags do not measure dollar marketing expenditures, they serve as proxies for commercial intent and distributor commitment.
-            """)
-
-    st.markdown("""
-        <div style="background: rgba(20, 28, 46, 0.7); border: 1px solid #1E2B44; border-left: 3px solid #10B981; border-radius: 8px; padding: 12px 16px; margin-top: 14px; font-size: 0.84rem; color: #CBD5E1;">
-            <b>Feature Count Verification:</b> 3 (Financial) + 2 (Characteristics) + 5 (Timing) + 16 (Genres) + 4 (Scale) + 2 (Geography) + 3 (Language) + 2 (Marketing) = <b>37 Total Engineered Features</b>.<br>
-            <i>Note on Preprocessing Expansion:</i> The two categorical attributes (<code>primary_genre</code> and <code>original_language</code>) are subsequently one-hot encoded by the Scikit-Learn ColumnTransformer pipeline, expanding the final model feature matrix to 69 encoded columns.
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # 6. Feature Transformation Mapping Table
+    # 6. Feature Transformation Mapping
     # -------------------------------------------------------------------------
     render_section_header(
         "Feature Transformation Mapping",
@@ -823,94 +698,74 @@ def render_overview_section(df: pd.DataFrame) -> None:
 
     st.dataframe(mapping_df, use_container_width=True, hide_index=True)
 
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 7. What Are We Predicting?
     # -------------------------------------------------------------------------
     render_section_header(
-        "Understanding Our Prediction Target: Worldwide Box Office Revenue",
-        "Target variable formulation, logarithmic scaling, and evaluation metrics"
+        "Prediction Target & Evaluation Metrics",
+        "Formulation of worldwide box office revenue, logarithmic scaling, and evaluation criteria"
     )
 
     t_col1, t_col2 = st.columns([1, 1], gap="medium")
 
     with t_col1:
         st.markdown("""
-### Prediction Target: Worldwide Revenue ($ USD)
-The target variable is **`revenue`**, representing the total worldwide theatrical box-office revenue of a movie in US Dollars.
+**Target Variable:** Total worldwide theatrical box-office revenue in US Dollars (`revenue`).
 
-#### Why Logarithmic Transformation is Essential:
-Raw box-office receipts span six orders of magnitude—ranging from under $10,000 for independent films to over $2,000,000,000 for global blockbusters. This produces an extremely positive, heavy-tailed skewness.
-
-If trained directly on raw USD:
-1. Multi-billion dollar tentpoles would dominate Mean Squared Error loss gradients.
-2. The model would ignore relative percentage errors on smaller mid-budget titles.
-3. Errors on small films would be penalized insignificantly compared to blockbusters.
-
-We apply the natural logarithmic transformation during training:
+**Logarithmic Transformation Formulation:**
+Because raw box-office receipts span six orders of magnitude ($10,000 to $2,000,000,000+), models are trained on log-transformed targets:
 $$\\text{log\\_revenue} = \\ln(\\text{revenue} + 1) = \\text{log1p}(\\text{revenue})$$
 
-And recover real dollar predictions via the inverse transformation clipped at zero:
+Real-dollar predictions are recovered via the inverse exponential clipped at zero:
 $$\\widehat{\\text{revenue}} = \\max\\left(0, e^{\\widehat{\\text{log\\_revenue}}} - 1\\right) = \\max\\left(0, \\text{expm1}(\\widehat{\\text{log\\_revenue}})\\right)$$
         """)
 
     with t_col2:
         st.markdown("""
-### Model Evaluation Metrics
-Because theatrical box office operates multiplicatively, models are evaluated with metrics tailored to heavy-tailed distributions:
+**Evaluation Metrics:**
 
-* **RMSLE (Root Mean Squared Logarithmic Error) — Primary Metric:**
+* **RMSLE (Root Mean Squared Logarithmic Error) — Primary:**
   $$\\text{RMSLE} = \\sqrt{\\frac{1}{N} \\sum_{i=1}^N \\left(\\ln(\\hat{y}_i + 1) - \\ln(y_i + 1)\\right)^2}$$
-  RMSLE measures relative percentage error rather than absolute dollar error, treating a 50% forecasting error on a $5M movie identically to a 50% error on a $200M blockbuster.
+  Penalizes relative percentage errors equally across mid-tier titles and tentpole blockbusters.
+* **MAE (Mean Absolute Error) — Secondary:** Quantifies average absolute dollar discrepancy.
+* **$R^2$ Score (Coefficient of Determination):** Proportion of target variance explained.
 
-* **MAE (Mean Absolute Error in $ USD) — Secondary Diagnostic:**
-  $$\\text{MAE} = \\frac{1}{N} \\sum_{i=1}^N |y_i - \\hat{y}_i|$$
-  Quantifies the average dollar discrepancy between actual and predicted revenues.
-
-* **$R^2$ Score (Coefficient of Determination) — Variance Explained:**
-  Measures the proportion of variance in actual revenue explained by the model.
-
-> **Important Industry Distinction:** Worldwide theatrical gross revenue represents total ticket sales at the box office. It is **strictly NOT equivalent to studio profit or ROI**, as theatrical exhibitors typically retain 40–50% of box office gross, and figures do not deduct P&A marketing budgets, distribution fees, or production expenses.
+*Note:* Theatrical gross revenue measures total ticket sales; exhibitors retain ~50%, and marketing/distribution costs are excluded.
         """)
 
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 8. Features Excluded from Prediction
     # -------------------------------------------------------------------------
     render_section_header(
-        "Why Are Some Dataset Columns Not Used?",
-        "Target leakage prevention, high-cardinality filtering, and pre-release modeling assumptions"
+        "Excluded Columns & Leakage Prevention",
+        "Raw attributes omitted to ensure pre-release validity and prevent target leakage"
     )
 
-    st.markdown("""
-To guarantee rigorous statistical validity and simulate a realistic **pre-release commercial environment**, several raw columns are deliberately excluded from predictive modeling:
+    excluded_df = pd.DataFrame([
+        {"Column(s)": "popularity", "Reason Excluded": "Dynamic metric computed from daily site traffic and queries", "Risk Prevented": "Post-release target leakage"},
+        {"Column(s)": "revenue", "Reason Excluded": "Dependent target variable to be predicted (y)", "Risk Prevented": "Direct label leakage"},
+        {"Column(s)": "id, imdb_id", "Reason Excluded": "Arbitrary database keys and external reference IDs", "Risk Prevented": "Memorization of non-generalizable indices"},
+        {"Column(s)": "status", "Reason Excluded": "99%+ homogeneous ('Released'); reflects retrospective label", "Risk Prevented": "Post-release status bias"},
+        {"Column(s)": "title, original_title", "Reason Excluded": "High-cardinality unique text strings", "Risk Prevented": "Severe overfitting without large NLP models"},
+        {"Column(s)": "overview, Keywords", "Reason Excluded": "Unstructured synopsis text and sparse tag lists", "Risk Prevented": "Noise injection outside tabular modeling scope"},
+        {"Column(s)": "poster_path", "Reason Excluded": "Image CDN URLs", "Risk Prevented": "Computer vision scope outside tabular regression"},
+    ])
+    st.dataframe(excluded_df, use_container_width=True, hide_index=True)
+    st.caption("Pre-Release Modeling Principle: Retained features must be knowable before a movie opens theatrically.")
 
-* **`id` & `imdb_id` (Arbitrary Identifiers):** Database primary keys and external reference IDs contain zero generalizable economic signal. Retaining identifiers would allow tree-based models to memorize training indices.
-* **`popularity` (Severe Post-Release Target Leakage):** The TMDB `popularity` score is dynamically recalculated on TMDB servers based on daily user views, votes, watchlist additions, and search traffic. For historical films, a high popularity score reflects current streaming interest and cult status acquired *after* theatrical release, introducing catastrophic target leakage.
-* **`poster_path` (Image References):** Image URLs point to JPG files on the TMDB CDN. Computer vision processing is outside the tabular regression scope of this project.
-* **`title` & `original_title` (High-Cardinality Text):** Raw movie titles contain thousands of unique string values. Incorporating raw titles without massive pre-trained language models would induce severe overfitting.
-* **`overview` & `Keywords` (Unstructured Text & Sparse Tags):** Freeform synopsis text and high-cardinality keyword tags are excluded to keep the pipeline lightweight, interpretable, and reproducible.
-* **`status` (Post-Release Bias):** Over 99% of training records are marked as `'Released'`. Titles labeled `'Rumored'` or `'Post Production'` reflect status updates recorded after release.
-* **`revenue` (Prediction Target):** The actual revenue is the dependent variable ($y$) to be predicted and is never passed to feature matrices.
-
-> **Pre-Release Modeling Assumption:** Our pipeline operates under the contract that all retained features (budget, genres, studio, cast/crew, release date) are knowable before a film opens in theaters. While historical snapshots in public databases can occasionally receive retrospective updates, excluding dynamic metrics (`popularity`) ensures the highest degree of real-world temporal validity.
-    """)
-
-    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 9. Complete Machine Learning Workflow
     # -------------------------------------------------------------------------
     render_section_header(
         "Complete Machine Learning Workflow",
-        "End-to-end data science and engineering architecture from raw records to production deployment"
+        "End-to-end architecture from raw TMDB records to production deployment"
     )
-
-    st.markdown("""
-The diagram below illustrates the end-to-end data pipeline implemented across our Jupyter notebooks, Scikit-Learn pipelines, and Streamlit platform:
-    """)
 
     st.markdown("""
 ```
@@ -945,24 +800,16 @@ The diagram below illustrates the end-to-end data pipeline implemented across ou
 ```
     """)
 
-    wf_steps = [
-        ("1. Raw TMDB Dataset", "Ingesting 3,000 labeled training movies and 4,398 unlabelled testing movies from the TMDB Box Office Prediction competition."),
-        ("2. Data Profiling", "Auditing variable types, null proportions, cardinality, and data formatting across all 23 raw attributes."),
-        ("3. Data Hygiene & Cleaning", "Standardizing dates with 2-digit century rollover, decoding nested JSON entities, and flagging zero values."),
-        ("4. Exploratory Data Analysis (EDA)", "Quantifying heavy-tailed revenue skewness, analyzing budget-to-revenue gross multiples, and exploring seasonal trends."),
-        ("5. Feature Engineering (37 Features)", "Extracting 37 domain predictors spanning financial, temporal, genre, studio, geographic, and marketing dimensions."),
-        ("6. Leakage Prevention", "Computing all imputation medians, scale bounds, and reference statistics strictly from the training partition."),
-        ("7. Train / Holdout Split", "Partitioning data into an 80% training development set ($N = 2,400$) and a locked 20% holdout set ($N = 600$)."),
-        ("8. Preprocessing Pipeline", "Constructing a Scikit-Learn ColumnTransformer applying median imputation, standard scaling, and one-hot encoding."),
-        ("9. 5-Fold Cross-Validation", "Evaluating 7 distinct model families (Dummy, Random Forest, Extra Trees, HistGradientBoosting, XGBoost, LightGBM, CatBoost)."),
-        ("10. Systematic Hyperparameter Tuning", "Running 30-iteration RandomizedSearchCV across all candidate algorithms (900 fits total) optimizing custom RMSLE scorer."),
-        ("11. Model Selection & Ensembling", "Benchmarking tuned models and out-of-fold stacking ensembles, selecting tuned LightGBM as production champion (RMSLE: 2.1576)."),
-        ("12. Locked Holdout Validation", "Evaluating final champion and baseline models on the untouched 20% holdout set ($N = 600$) to verify generalization."),
-        ("13. Production Retraining", "Fitting the champion LightGBM architecture on 100% of labeled training data ($N = 3,000$) to maximize learning capacity."),
-        ("14. Worldwide Revenue Forecasting", "Generating verified competition test predictions (submission.csv) and serving live interactive pre-release forecasts.")
-    ]
-
-    for title, desc in wf_steps:
-        st.markdown(f"• **{title}:** {desc}")
+    wf_col1, wf_col2 = st.columns(2, gap="medium")
+    with wf_col1:
+        st.markdown("""
+* **Phase 1: Ingestion & Hygiene:** Ingest labeled train (3,000) and unlabeled test (4,398) records; standardize 2-digit century dates; parse nested JSON schemas (cast, crew, genres, studios).
+* **Phase 2: Leak-Free Preprocessing:** Derive 37 pre-release domain predictors; compute imputation medians strictly on training partitions; apply ColumnTransformer one-hot encoding.
+        """)
+    with wf_col2:
+        st.markdown("""
+* **Phase 3: Model Benchmark & Tuning:** Evaluate 7 model families via 5-fold CV; execute 30-iteration RandomizedSearchCV optimizing RMSLE; construct out-of-fold stacking ensemble.
+* **Phase 4: Validation & Deployment:** Verify generalization on locked 20% holdout (N = 600); retrain champion LightGBM on 100% labeled data for live production inference.
+        """)
 
     st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
