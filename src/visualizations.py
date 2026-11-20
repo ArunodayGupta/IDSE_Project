@@ -878,53 +878,9 @@ def plot_model_comparison_r2(comp_df: pd.DataFrame) -> go.Figure:
     return apply_figure_theme(fig, title="Graph C: Holdout Explained Variance (R²)", height=420)
 
 
-def plot_training_time_vs_rmsle(comp_df: pd.DataFrame) -> go.Figure:
-    """
-    Graph D: Training Time vs Prediction Performance.
-    Scatter plot of training time (seconds) vs Holdout RMSLE.
-    Annotated with model names.
-    """
-    if comp_df is None or comp_df.empty or "Training_Time_Sec" not in comp_df.columns:
-        return create_empty_chart("Training Time vs RMSLE", height=440)
-
-    sub = comp_df[comp_df["Model_Key"] != "dummy"].copy()
-    if sub.empty:
-        sub = comp_df.copy()
-
-    short_names = [m.replace(" Regressor", "").replace(" Baseline", "") for m in sub["Model"]]
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=sub["Training_Time_Sec"],
-        y=sub["Holdout_RMSLE"],
-        mode="markers+text",
-        text=short_names,
-        textposition="top right",
-        textfont=dict(size=10, color=TEXT_PRIMARY),
-        marker=dict(
-            size=10,
-            color=np.where(sub["Is_Tuned"], COLOR_CYAN, COLOR_VIOLET),
-            line=dict(color=BORDER_SUBTLE, width=1.5),
-            symbol=np.where(sub["Is_Tuned"], "diamond", "circle")
-        ),
-        hovertemplate=(
-            "<b>%{text}</b><br>"
-            "Training Time: %{x:.2f}s<br>"
-            "Holdout RMSLE: %{y:.4f}<extra></extra>"
-        )
-    ))
-
-    fig.update_layout(
-        xaxis=dict(title="Model Training Time on 80% Split (Seconds)", rangemode="tozero"),
-        yaxis=dict(title="Holdout RMSLE (Lower is Better)")
-    )
-
-    return apply_figure_theme(fig, title="Graph D: Training Computational Cost vs Holdout Performance", height=440)
-
-
 def plot_tuning_improvement(comp_df: pd.DataFrame) -> go.Figure:
     """
-    Graph E: Hyperparameter Tuning Improvement (Default vs Tuned CV RMSLE).
+    Graph D: Hyperparameter Tuning Improvement (Default vs Tuned CV RMSLE).
     Compares baseline vs tuned 5-fold CV RMSLE for applicable architectures.
     """
     if comp_df is None or comp_df.empty:
@@ -979,4 +935,4 @@ def plot_tuning_improvement(comp_df: pd.DataFrame) -> go.Figure:
         yaxis=dict(title="5-Fold CV RMSLE (Lower is Better)")
     )
 
-    return apply_figure_theme(fig, title="Graph E: Hyperparameter Tuning Impact (Default vs Tuned CV RMSLE)", height=440)
+    return apply_figure_theme(fig, title="Graph D: Hyperparameter Tuning Impact (Default vs Tuned CV RMSLE)", height=440)

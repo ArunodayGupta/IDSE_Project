@@ -41,7 +41,6 @@ from src.visualizations import (
     plot_model_comparison_rmsle,
     plot_model_comparison_mae,
     plot_model_comparison_r2,
-    plot_training_time_vs_rmsle,
     plot_tuning_improvement,
     format_currency_compact,
 )
@@ -288,19 +287,12 @@ def render_ml_studio_section(raw_df: pd.DataFrame) -> None:
         with c_col3:
             fig_r2 = plot_model_comparison_r2(results_df)
             st.plotly_chart(fig_r2, use_container_width=True)
-            st.caption("Graph C: Holdout Explained Variance R² (Higher is Better).")
+            st.caption("Graph C: Holdout Explained Variance R² across candidate models (Higher is Better).")
 
         with c_col4:
-            fig_time = plot_training_time_vs_rmsle(results_df)
-            st.plotly_chart(fig_time, use_container_width=True)
-            st.caption("Graph D: Model training duration (seconds) vs Holdout RMSLE trade-off.")
-
-        st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
-
-        # Row 3: Graph E
-        fig_tuning = plot_tuning_improvement(results_df)
-        st.plotly_chart(fig_tuning, use_container_width=True)
-        st.caption("Graph E: Baseline default vs Tuned 5-fold CV RMSLE across six machine learning model families.")
+            fig_tuning = plot_tuning_improvement(results_df)
+            st.plotly_chart(fig_tuning, use_container_width=True)
+            st.caption("Graph D: Baseline default vs Tuned 5-fold CV RMSLE across six machine learning model families.")
 
         # Dynamically compute benchmark findings directly from results_df
         def _get_metric(pattern: str, col: str) -> Optional[float]:
